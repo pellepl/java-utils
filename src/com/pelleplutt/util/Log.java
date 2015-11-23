@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 
-import com.verisure.simprof.Essential;
+//import com.myapp.Essential; // TODO
 
 public class Log {
   public static PrintStream out = System.out;
