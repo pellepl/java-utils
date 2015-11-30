@@ -1,5 +1,5 @@
 /*
- Copyright (c) 2012, Peter Andersson pelleplutt1976@gmail.com
+ Copyright (c) 2012-2015, Peter Andersson pelleplutt1976@gmail.com
 
  Permission to use, copy, modify, and/or distribute this software for any
  purpose with or without fee is hereby granted, provided that the above
@@ -16,12 +16,18 @@
 package com.pelleplutt.util;
 
 import java.awt.Component;
+import java.awt.event.ActionListener;
+import java.awt.event.MouseEvent;
 import java.io.File;
 import java.util.regex.Pattern;
 
 import javax.swing.ImageIcon;
 import javax.swing.JFileChooser;
+import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
+import javax.swing.JPopupMenu;
+import javax.swing.event.PopupMenuEvent;
+import javax.swing.event.PopupMenuListener;
 import javax.swing.filechooser.FileFilter;
 
 public class UIUtil {
@@ -147,5 +153,44 @@ public class UIUtil {
     } else {
       return null;
     }
+  }
+  
+  public static void showPopupMenu(MouseEvent e, String items[], ActionListener al) {    showPopupMenu(e.getComponent(), e.getX(), e.getY(), items, al);
+  }
+  
+  /**
+   * Will create a popupmenu with items as menu items.
+   * If cancelled, given actionlistener will be called with null as argument.
+   * Else, actionlistener will be called with an actionevent whose cmd is the 
+   * selected string.
+   * @param owner   parent window
+   * @param x       x pos
+   * @param y       y pos
+   * @param items   popup choices
+   * @param al      callback when selecting a choice, or called with null if cancelled
+   */
+  public static void showPopupMenu(Component owner, int x, int y, String items[],
+      final ActionListener al) {
+    JPopupMenu pu = new JPopupMenu();
+    pu.addPopupMenuListener(new PopupMenuListener() {
+      @Override
+      public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
+      }
+      
+      @Override
+      public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {
+      }
+      
+      @Override
+      public void popupMenuCanceled(PopupMenuEvent e) {
+        if (al != null) al.actionPerformed(null);
+      }
+    });
+    for (String item : items) {
+      JMenuItem i = new JMenuItem(item);
+      if (al != null) i.addActionListener(al);
+      pu.add(i);
+    }
+    pu.show(owner, x, y);
   }
 }
