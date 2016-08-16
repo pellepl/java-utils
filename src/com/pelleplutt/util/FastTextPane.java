@@ -847,46 +847,4 @@ public class FastTextPane extends JPanel {
       }
     }
   };
-  
-  public static void main(String[] args) {
-    JFrame f = new JFrame();
-    f.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
-    f.getContentPane().setLayout(new BorderLayout());
-    FastTextPane ftp = new FastTextPane();
-    f.setSize(600, 400);
-    f.setLocationByPlatform(true);
-    
-    
-    f.getContentPane().add(
-        new JScrollPane(ftp, 
-            JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED));
-    
-    ftp.setForeground(new Color(255,255,192));
-    ftp.setBackground(Color.black);
-    ftp.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
-    String text = AppSystem.readFile(new File("/home/petera/proj/gateway/generic/blost.c"));
-    //String text = AppSystem.readFile(new File(("/home/petera/proj/gw-tools/simprof/src/com/pelleplutt/util/FastTextPane.java"))); 
-    //String text = AppSystem.readFile(new File(("/home/petera/bible.txt")));
-    ftp.setText(text);
-//    int lineNbr = 0;
-//    int sumLen = 0;
-//    for (Line l : ftp.lines) {
-//      System.out.format("line %-4d  offs:%-6d  len:%-3d  nxt:%-6d  %s\n", lineNbr++, l.offs, l.len, l.offs + l.len, l.string);
-//      sumLen += l.len;
-//    }
-//    System.out.println("sum text length:" + sumLen);
-    System.out.println("text raw length:" + text.length());
-    System.out.println("ftp text length:" + ftp.len);
-    System.out.println("getText length :" + ftp.getText().length());
-    
-    int offset = 0;
-    String keyword = "line";
-    while ((offset = text.indexOf(keyword, offset)) >= 0) {
-      ftp.addStyleByOffset(1, Color.magenta, null, true, offset, offset + keyword.length());
-      offset++;
-    }
-    
-    
-    f.setVisible(true);
-  }
 }
