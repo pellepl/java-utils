@@ -13,7 +13,7 @@
  OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
  PERFORMANCE OF THIS SOFTWARE.
 */
-package com.pelleplutt.io;
+package com.pelleplutt.util.io;
 
 public class Port implements Comparable<Port> {
 	public static final int UNDEF = -1;
