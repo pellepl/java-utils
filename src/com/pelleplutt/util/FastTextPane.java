@@ -1,22 +1,6 @@
-/*
- Copyright (c) 2016, Peter Andersson pelleplutt1976@gmail.com
-
- Permission to use, copy, modify, and/or distribute this software for any
- purpose with or without fee is hereby granted, provided that the above
- copyright notice and this permission notice appear in all copies.
-
- THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
- REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
- AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
- INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
- LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
- OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
- PERFORMANCE OF THIS SOFTWARE.
-*/
 
 package com.pelleplutt.util;
 
-import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Container;
 import java.awt.Dimension;
@@ -35,18 +19,15 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
-import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
 import javax.swing.AbstractAction;
 import javax.swing.ActionMap;
-import javax.swing.JFrame;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JViewport;
 import javax.swing.KeyStroke;
-import javax.swing.WindowConstants;
 
 public class FastTextPane extends JPanel {
   private static final long serialVersionUID = -4049699159411811667L;
@@ -60,26 +41,44 @@ public class FastTextPane extends JPanel {
   int selectedEndOffset = -1;
   int anchorOffset = -1;
   int longestStringWidth = 0;
-  List<Line> lines = new ArrayList<Line>();
-  int len = 0;
   int fontHPx;
   Style selectionStyle = new Style();
-
+  Doc doc;
 
   public FastTextPane() {
+    doc = new Doc();
+    doc.listeners.add(this);
     fontHPx = getFontMetrics(getFont()).getHeight();
     recalcSize();
     addKeyBindings();
     addMouseBindings();
     selectionStyle.fg = null;//Color.black;
-    selectionStyle.bg = new Color(0,0,200);
+    selectionStyle.bg = Color.gray;
     selectionStyle.bold = false;
+    setFocusable(true);
+    addMouseListener(new MouseAdapter() {
+      @Override
+      public void mousePressed(MouseEvent me) {
+        ((JPanel) me.getSource()).requestFocusInWindow();
+      }
+    });
+  }
+  
+  public Doc getDocument() {
+    return doc;
+  }
+  
+  public void setDocument(Doc document) {
+    doc.listeners.remove(this);
+    doc = document;
+    doc.listeners.add(this);
+    onDocChanged();
   }
   
   public String getText() {
     StringBuilder sb = new StringBuilder();
-    synchronized (lines) {
-      for (Line line : lines) {
+    synchronized (doc.lines) {
+      for (Line line : doc.lines) {
         sb.append(line.string);
         if (line.nl) sb.append('\n');
       }
@@ -90,95 +89,48 @@ public class FastTextPane extends JPanel {
   
   public String getSelectedText() {
     if (selectedStartOffset >= 0 && selectedEndOffset > selectedStartOffset) {
-      return getText().substring(selectedStartOffset, Math.min(len, selectedEndOffset));
+      return getText().substring(selectedStartOffset, Math.min(doc.len, selectedEndOffset));
     } else {
       return null;
     }
   }
   
   public void setText(String s) {
-    synchronized (lines) {
-      clear();
-      addText(s);
-    }
+    doc.setText(s);
+  }
+  
+  void onDocChanged() {
+    recalcSize();
+    repaint();
+  }
+  
+  void onDocRepaint() {
+    repaint();
+  }
+  
+  void onLineAdded(String s) {
+    int w = getFontMetrics(getFont()).stringWidth(s);
+    if (w > longestStringWidth) longestStringWidth = w;
+  }
+  
+  void onCleared() {
+    longestStringWidth = 8;
     recalcSize();
     repaint();
   }
   
   public void addText(String s, int id, Color fg, Color bg, boolean bold) {
-    if (s == null) return;
-    int prevLen = len;
-    synchronized (lines) {
-      int prevOffs = 0;
-      int offs = s.indexOf('\n');
-      if (offs < 0) {
-        appendLine(s);
-      } else {
-        while (offs >= 0) {
-          appendLine(s.substring(prevOffs, offs));
-          prevOffs = offs + 1;
-          offs = s.indexOf('\n', prevOffs);
-          if (prevOffs > 0 && s.charAt(prevOffs-1) == '\n') {
-            addLine(new Line());
-          }
-        }
-        if (prevOffs < s.length()) {
-          appendLine(s.substring(prevOffs));
-        }
-        //if (s.endsWith("\n")) {
-        //  addLine(new Line());
-        //}
-      }
-    }
-    if (id != Integer.MIN_VALUE) {
-      addStyleByOffset(id, fg, bg, bold, prevLen, len);
-    }
-    recalcSize();
-    repaint();
+    doc.addText(s, id, fg, bg, bold);
   }
   
   public void addText(String s) {
-    addText(s, Integer.MIN_VALUE, null, null, false);
-  }
-  
-  protected void addLine(Line l) {
-    synchronized (lines) {
-      // add nl to previous line
-      if (!lines.isEmpty()) {
-        Line preLine = lines.get(lines.size()-1); 
-        preLine.len++;
-        preLine.nl = true;
-        len++;
-      }
-      l.offs = len;
-      lines.add(l);
-      len += l.len;
-      int w = getFontMetrics(getFont()).stringWidth(l.string);
-      if (w > longestStringWidth) longestStringWidth = w;
-    }
-  }
-  
-  protected void appendLine(String s) {
-    synchronized (lines) {
-      Line l;
-      if (lines.isEmpty()) {
-        l = new Line();
-        lines.add(l);
-      } else {
-        l = lines.get(countLines() - 1);
-      }
-      l.len += s.length();
-      len += s.length();
-      l.string += s;
-      int w = getFontMetrics(getFont()).stringWidth(l.string);
-      if (w > longestStringWidth) longestStringWidth = w;
-    }
+    doc.addText(s, Integer.MIN_VALUE, null, null, false);
   }
   
   public void select(int startOffs, int endOffs) {
-    if (startOffs > len || endOffs < startOffs) return;
+    if (startOffs > doc.len || endOffs < startOffs) return;
     selectedStartOffset = Math.max(0, startOffs);
-    selectedEndOffset = Math.min(len, endOffs);
+    selectedEndOffset = Math.min(doc.len, endOffs);
     repaint();
   }
   
@@ -189,111 +141,48 @@ public class FastTextPane extends JPanel {
   }
   
   public void addStyleByOffset(int styleId, Color fg, Color bg, boolean bold, int startOffs, int endOffs) {
-    if (startOffs > len || endOffs < startOffs) return;
-    startOffs = Math.max(0, startOffs);
-    endOffs = Math.min(len, endOffs);
-    int curOffs = startOffs;
-    int curLine = getLineNumberByOffset(startOffs);
-    while (curOffs < len && curOffs < endOffs) {
-      Line line = lines.get(curLine);
-      if (line.offs + line.len > startOffs) {
-        Style s = new Style();
-        s.id = styleId;
-        s.fg = fg;
-        s.bg = bg;
-        s.bold = bold;
-        s.lineStartOffs = Math.max(0, startOffs - line.offs);
-        s.lineEndOffs = Math.min(line.len, endOffs - line.offs - 1);
-        line.addStyle(s);
-      }
-      curOffs = line.offs + line.len;
-      curLine++;
-    }
-    repaint();
+    doc.addStyleByOffset(styleId, fg, bg, bold, startOffs, endOffs);
   }
   
   public void addStyleByLine(int styleId, Color fg, Color bg, boolean bold, int startLine, int endLine) {
-    if (startLine >= countLines() || endLine < startLine) return;
-    synchronized(lines) {
-      startLine = Math.max(0, startLine);
-      endLine = Math.min(countLines()-1, endLine);
-      for (int l = startLine; l <= endLine; l++) {
-        Line line = lines.get(l);
-        Style s = new Style();
-        s.id = styleId;
-        s.fg = fg;
-        s.bg = bg;
-        s.bold = bold;
-        s.lineStartOffs = 0;
-        s.lineEndOffs = line.len;
-        line.addStyle(s);
-      }
-    }
-    repaint();
+    doc.addStyleByLine(styleId, fg, bg, bold, startLine, endLine);
   }
   
   public void addStyleByLineAndOffset(int styleId, Color fg, Color bg, boolean bold, int lineNbr, int startOffs, int endOffs) {
-    if (lineNbr >= countLines() || lineNbr < 0) return;
-    synchronized(lines) {
-      Line line = lines.get(lineNbr);
-      Style s = new Style();
-      s.id = styleId;
-      s.fg = fg;
-      s.bg = bg;
-      s.bold = bold;
-      s.lineStartOffs = startOffs;
-      s.lineEndOffs = endOffs;
-      line.addStyle(s);
-    }
-    repaint();
+    doc.addStyleByLineAndOffset(styleId, fg, bg, bold, lineNbr, startOffs, endOffs);
   }
   
   public void removeStyle(int styleId) {
-    synchronized (lines) {
-      for (Line line : lines) {
-        if (line.styles != null) {
-          for (int i = line.styles.size()-1; i >= 0 ; i--) {
-            if (line.styles.get(i).id == styleId) {
-              line.styles.remove(i);
-            }
-          }
-        }
-      }
-    }
-    repaint();
+    doc.removeStyle(styleId);
   }
   
   public int countLines() {
-    return lines.size();
+    return doc.countLines();
   }
   
   public int getTextLength() {
-    return len;
+    return doc.len;
   }
   
   public String getTextAtLine(int line) {
     if (line >= 0 && line < countLines()) {
-      return lines.get(line).string;
+      return doc.lines.get(line).string;
     } else {
       return null;
     }
   }
   
   public void clear() {
-    synchronized (lines) {
-      lines.clear();
-      len = 0;
-      longestStringWidth = 0;
-    }
+    doc.clear();
   }
   
   public void setFont(Font font) {
     super.setFont(font);
     fontHPx = getFontMetrics(getFont()).getHeight();
-    if (lines != null) {
-      synchronized (lines) {
+    if (doc != null && doc.lines != null) {
+      synchronized (doc.lines) {
         longestStringWidth = 0;
-        for (Line line : lines) {
+        for (Line line : doc.lines) {
           int w = getFontMetrics(getFont()).stringWidth(line.string);
           if (w > longestStringWidth) longestStringWidth = w;
         }
@@ -334,8 +223,12 @@ public class FastTextPane extends JPanel {
     if (p == null) return;
     int w = scrlP.getViewport().getWidth();
     int h = scrlP.getViewport().getHeight();
-    Rectangle r = new Rectangle(p.x - w/4, p.y - h/4, w/2, h/2);
-    scrlP.getHorizontalScrollBar().setValue(r.x);
+    Rectangle r = new Rectangle(p.x - w/2, p.y - h/2, w, h);
+    int hxs = scrlP.getHorizontalScrollBar().getValue();
+    int hxe = hxs + w - 64;
+    if (p.x <= hxs || p.x >= hxe) {
+      scrlP.getHorizontalScrollBar().setValue(r.x);
+    }
     scrlP.getVerticalScrollBar().setValue(r.y);
     //scrlP.getViewport().scrollRectToVisible(r);
   }
@@ -346,7 +239,7 @@ public class FastTextPane extends JPanel {
     lineNbr = Math.max(0, Math.min(lineNbr, countLines()-1));
     int w = scrlP.getViewport().getWidth();
     int h = scrlP.getViewport().getHeight();
-    Rectangle r = new Rectangle(0, getYForLineNumber(lineNbr) - h/4, w/2, h/2);
+    Rectangle r = new Rectangle(0, getYForLineNumber(lineNbr) - h/2, w, h);
     scrlP.getHorizontalScrollBar().setValue(r.x);
     scrlP.getVerticalScrollBar().setValue(r.y);
     //scrlP.getViewport().scrollRectToVisible(r);
@@ -369,75 +262,42 @@ public class FastTextPane extends JPanel {
   
   public int getLineLength(int lineNbr) {
     if (lineNbr < 0 || lineNbr >= countLines()) return 0;
-    Line line = lines.get(lineNbr);
+    Line line = doc.lines.get(lineNbr);
     return line.len;
   }
   
   public int getLineOffset(int lineNbr) {
     if (lineNbr < 0 || lineNbr >= countLines()) return 0;
-    Line line = lines.get(lineNbr);
+    Line line = doc.lines.get(lineNbr);
     return line.offs;
   }
   
   public String getLineByOffset(int offset) {
-    return getLineByLineNumber(getLineNumberByOffset(offset));
+    return getLineByLineNumber(doc.getLineNumberByOffset(offset));
   }
   
   public String getLineByLineNumber(int lineNbr) {
     if (lineNbr < 0 || lineNbr >= countLines()) return null;
-    Line line = lines.get(lineNbr);
+    Line line = doc.lines.get(lineNbr);
     return line.string;
   }
   
   public Point getCoordinatesForOffset(int offs) {
-    int lineNbr = getLineNumberByOffset(offs);
+    int lineNbr = doc.getLineNumberByOffset(offs);
     if (lineNbr < 0 || lineNbr >= countLines()) return null;
-    Line line = lines.get(lineNbr);
+    Line line = doc.lines.get(lineNbr);
     int strOffs = offs - line.offs;
     String s = line.string.substring(0, Math.min(strOffs, line.len-1));
     int x = getFontMetrics(getFont()).stringWidth(s);
     return new Point(x, getYForLineNumber(lineNbr));
   }
-  
-  public int getLineNumberByOffset(int offs) {
-    // binary search
-    // extend length to power of 2
-    final int lineCnt = countLines();
-    if (offs >= len) return lineCnt; 
-    int hsb = 31;
-    while (hsb > 0 && (lineCnt & (1 << hsb)) == 0) {
-      hsb--;
-    }
-    int lineCnt2 = (1 << (hsb+1));
-    int curStep = lineCnt2/2;
-    int curLine = lineCnt2/2;
-    Line line;
-    do {
-      int l = Math.max(0, Math.min(lineCnt-1, curLine));
-      line = lines.get(l);
-      
-      if (offs >= line.offs && offs < line.offs + line.len) {
-        break;
-      }
-      
-      if (offs < line.offs) {
-        curLine -= curStep;
-      } else {
-        curLine += curStep;
-      }
-      curStep /= 2;
-      if (curStep == 0) curStep = 1;
-    } while (true);
-    
-    return Math.max(0, Math.min(lineCnt-1, curLine));
-  }
-  
+
   public int getOffsetAt(int x, int y) {
     if (x < 0) x = 0;
     if (y < 0) y = 0;
     int lineNbr = y / fontHPx;
-    if (lineNbr >= countLines()) return len;
-    Line line = lines.get(lineNbr);
+    if (lineNbr >= countLines()) return doc.len;
+    Line line = doc.lines.get(lineNbr);
     int linelen = line.string.length();
 
     int fullLineW = getFontMetrics(getFont()).stringWidth(line.string);
@@ -519,7 +379,7 @@ public class FastTextPane extends JPanel {
     final int visMaxY = visRect.y + visRect.height;
     final int maxLine = countLines();
     while (y < visMaxY && visLine < maxLine) {
-      Line l = lines.get(visLine);
+      Line l =doc.lines.get(visLine);
       paintLineShards(g, y, l);
       visLine++;
       y += fontHPx;
@@ -669,7 +529,7 @@ public class FastTextPane extends JPanel {
         if (offs >= style.lineStartOffs) {
           // active style
           int styleLen = style.lineEndOffs - style.lineStartOffs; 
-          if (styleLen < minLen) {
+          if (styleLen <= minLen) {
             minLen = styleLen;
             minLenOffs = style.lineEndOffs + 1;
             if (style.fg != null) shardStyle.fg = style.fg; 
@@ -707,7 +567,7 @@ public class FastTextPane extends JPanel {
     int lineStartOffs, lineEndOffs;
   }
   
-  protected class Line {
+  protected static class Line {
     String string;
     List<Style> styles;
     int offs;
@@ -716,7 +576,6 @@ public class FastTextPane extends JPanel {
 
     public Line() {
       string = "";
-      this.offs = FastTextPane.this.len;
       len = 0;
     }
     
@@ -738,11 +597,13 @@ public class FastTextPane extends JPanel {
   protected void addKeyBindings() {
     ActionMap actionMap = getActionMap();
 
-    getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_PAGE_UP, 0), "pageup");
-    getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_PAGE_DOWN, 0), "pagedown");
-    getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_UP, 0), "lineup");
-    getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, 0), "linedown");
-    getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_C, InputEvent.CTRL_DOWN_MASK), "copy");
+    getInputMap(WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_PAGE_UP, 0), "pageup");
+    getInputMap(WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_PAGE_DOWN, 0), "pagedown");
+    getInputMap(WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_UP, 0), "lineup");
+    getInputMap(WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, 0), "linedown");
+    getInputMap(WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_C, InputEvent.CTRL_DOWN_MASK), "copy");
+    getInputMap(WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_HOME, InputEvent.CTRL_DOWN_MASK), "home");
+    getInputMap(WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_END, InputEvent.CTRL_DOWN_MASK), "end");
 
     actionMap.put("pageup", new AbstractAction() {
       private static final long serialVersionUID = -1443733874776516263L;
@@ -788,6 +649,24 @@ public class FastTextPane extends JPanel {
           Clipboard clpbrd = Toolkit.getDefaultToolkit().getSystemClipboard();
           clpbrd.setContents(stringSelection, null);
         }
+      }
+    });
+    actionMap.put("home", new AbstractAction() {
+      private static final long serialVersionUID = 8906144596280671442L;
+      @Override
+      public void actionPerformed(ActionEvent e) {
+        JScrollPane scrlP = getScroll();
+        if (scrlP == null) return;
+        scrlP.getVerticalScrollBar().setValue(0);
+      }
+    });
+    actionMap.put("end", new AbstractAction() {
+      private static final long serialVersionUID = 8390621445968067142L;
+      @Override
+      public void actionPerformed(ActionEvent e) {
+        JScrollPane scrlP = getScroll();
+        if (scrlP == null) return;
+        scrlP.getVerticalScrollBar().setValue(scrlP.getVerticalScrollBar().getMaximum());
       }
     });
   }
@@ -847,4 +726,265 @@ public class FastTextPane extends JPanel {
       }
     }
   };
+  
+  /**
+   * FastTextPane document model
+   */
+  public static class Doc {
+    List<Line> lines = new ArrayList<Line>();
+    List<FastTextPane> listeners = new ArrayList<FastTextPane>();
+    int len = 0;
+    int maxBytes = 0;
+    
+    public void setMaximumDocumentBytes(int bytes) {
+      maxBytes = bytes;
+      if (maxBytes > 0) {
+        removeLinesUntilLength(maxBytes);
+      }
+    }
+    
+    public void fireOnDocChanged() {
+      for (FastTextPane ftp : listeners) {
+        ftp.onDocChanged();
+      }
+    }
+    
+    public void fireOnDocRepaint() {
+      for (FastTextPane ftp : listeners) {
+        ftp.onDocRepaint();
+      }
+    }
+    
+    public void fireOnLineAdded(String s) {
+      for (FastTextPane ftp : listeners) {
+        ftp.onLineAdded(s);
+      }
+    }
+    
+    public void fireOnCleared() {
+      for (FastTextPane ftp : listeners) {
+        ftp.onCleared();
+      }
+    }
+    
+    public void setText(String s) {
+      synchronized (lines) {
+        internalClear();
+        addText(s);
+      }
+      fireOnDocChanged();
+    }
+    
+    protected void internalClear() {
+      synchronized (lines) {
+        lines.clear();
+        len = 0;
+      }
+    }
+    
+    public void clear() {
+      internalClear();
+      fireOnCleared();
+    }
+    
+    public void addStyleByOffset(int styleId, Color fg, Color bg, boolean bold, int startOffs, int endOffs) {
+      if (startOffs > len || endOffs < startOffs) return;
+      startOffs = Math.max(0, startOffs);
+      endOffs = Math.min(len, endOffs);
+      int curOffs = startOffs;
+      int curLine = getLineNumberByOffset(startOffs);
+      while (curOffs < len && curOffs < endOffs) {
+        Line line = lines.get(curLine);
+        if (line.offs + line.len > startOffs) {
+          Style s = new Style();
+          s.id = styleId;
+          s.fg = fg;
+          s.bg = bg;
+          s.bold = bold;
+          s.lineStartOffs = Math.max(0, startOffs - line.offs);
+          s.lineEndOffs = Math.min(line.len, endOffs - line.offs - 1);
+          line.addStyle(s);
+        }
+        curOffs = line.offs + line.len;
+        curLine++;
+      }
+      fireOnDocRepaint();
+    }
+    
+    public int countLines() {
+      return lines.size();
+    }
+    
+    public void addStyleByLine(int styleId, Color fg, Color bg, boolean bold, int startLine, int endLine) {
+      if (startLine >= countLines() || endLine < startLine) return;
+      synchronized(lines) {
+        startLine = Math.max(0, startLine);
+        endLine = Math.min(countLines()-1, endLine);
+        for (int l = startLine; l <= endLine; l++) {
+          Line line = lines.get(l);
+          Style s = new Style();
+          s.id = styleId;
+          s.fg = fg;
+          s.bg = bg;
+          s.bold = bold;
+          s.lineStartOffs = 0;
+          s.lineEndOffs = line.len;
+          line.addStyle(s);
+        }
+      }
+      fireOnDocRepaint();
+    }
+    
+    public void addStyleByLineAndOffset(int styleId, Color fg, Color bg, boolean bold, int lineNbr, int startOffs, int endOffs) {
+      if (lineNbr >= countLines() || lineNbr < 0) return;
+      synchronized(lines) {
+        Line line = lines.get(lineNbr);
+        Style s = new Style();
+        s.id = styleId;
+        s.fg = fg;
+        s.bg = bg;
+        s.bold = bold;
+        s.lineStartOffs = startOffs;
+        s.lineEndOffs = endOffs;
+        line.addStyle(s);
+      }
+      fireOnDocRepaint();
+    }
+    
+    public void removeStyle(int styleId) {
+      synchronized (lines) {
+        for (Line line : lines) {
+          if (line.styles != null) {
+            for (int i = line.styles.size()-1; i >= 0 ; i--) {
+              if (line.styles.get(i).id == styleId) {
+                line.styles.remove(i);
+              }
+            }
+          }
+        }
+      }
+      fireOnDocRepaint();
+    }
+
+    
+    public void addText(String s, int id, Color fg, Color bg, boolean bold) {
+      if (s == null) return;
+      int prevLen;
+      synchronized (lines) {
+        if (maxBytes > 0 && len + s.length() > maxBytes) {
+          // tidy
+          removeLinesUntilLength(maxBytes);
+        }
+        prevLen = len;
+        int prevOffs = 0;
+        int offs = s.indexOf('\n');
+        if (offs < 0) {
+          appendLine(s);
+        } else {
+          while (offs >= 0) {
+            appendLine(s.substring(prevOffs, offs));
+            prevOffs = offs + 1;
+            offs = s.indexOf('\n', prevOffs);
+            if (prevOffs > 0 && s.charAt(prevOffs-1) == '\n') {
+              Line line = new Line();
+              line.offs = len;
+              addLine(line);
+            }
+          }
+          if (prevOffs < s.length()) {
+            appendLine(s.substring(prevOffs));
+          }
+        }
+      }
+      if (id != Integer.MIN_VALUE) {
+        addStyleByOffset(id, fg, bg, bold, prevLen, len);
+      }
+      fireOnDocChanged();
+    }
+    
+    public void addText(String s) {
+      addText(s, Integer.MIN_VALUE, null, null, false);
+    }
+    
+    protected void addLine(Line l) {
+      synchronized (lines) {
+        // add nl to previous line
+        if (!lines.isEmpty()) {
+          Line preLine = lines.get(lines.size()-1); 
+          preLine.len++;
+          preLine.nl = true;
+          len++;
+        }
+        l.offs = len;
+        lines.add(l);
+        len += l.len;
+        fireOnLineAdded(l.string);
+      }
+    }
+    
+    protected void appendLine(String s) {
+      synchronized (lines) {
+        Line l;
+        if (lines.isEmpty()) {
+          l = new Line();
+          lines.add(l);
+        } else {
+          l = lines.get(countLines() - 1);
+        }
+        l.len += s.length();
+        len += s.length();
+        l.string += s;
+        fireOnLineAdded(l.string);
+      }
+    }
+    
+    protected void removeLinesUntilLength(int maxLen) {
+      synchronized (lines) {
+        int movedOffs = 0;
+        while (!lines.isEmpty() && len > maxLen) {
+          Line line = lines.remove(0);
+          movedOffs += line.len;
+          len -= line.len;
+        }
+        if (movedOffs > 0) {
+          for (Line line : lines) {
+            line.offs -= movedOffs;
+          }
+        }
+      }
+    }
+
+    public int getLineNumberByOffset(int offs) {
+      // binary search
+      // extend length to power of 2
+      final int lineCnt = countLines();
+      if (offs >= len) return lineCnt; 
+      int hsb = 31;
+      while (hsb > 0 && (lineCnt & (1 << hsb)) == 0) {
+        hsb--;
+      }
+      int lineCnt2 = (1 << (hsb+1));
+      int curStep = lineCnt2/2;
+      int curLine = lineCnt2/2;
+      Line line;
+      do {
+        int l = Math.max(0, Math.min(lineCnt-1, curLine));
+        line = lines.get(l);
+        
+        if (offs >= line.offs && offs < line.offs + line.len) {
+          break;
+        }
+        
+        if (offs < line.offs) {
+          curLine -= curStep;
+        } else {
+          curLine += curStep;
+        }
+        curStep /= 2;
+        if (curStep == 0) curStep = 1;
+      } while (true);
+      
+      return Math.max(0, Math.min(lineCnt-1, curLine));
+    }
+  }
 }
