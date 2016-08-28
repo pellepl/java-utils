@@ -68,13 +68,14 @@ public class Port implements Comparable<Port> {
 	}
 
 	public static int parseParity(String s) {
-		if (PARITY_NONE_S.equals(s)) {
+	  s = s.toLowerCase();
+		if (PARITY_NONE_S.toLowerCase().equals(s)) {
 			return PARITY_NO;
 		}
-		if (PARITY_EVEN_S.equals(s)) {
+		if (PARITY_EVEN_S.toLowerCase().equals(s)) {
 			return PARITY_EVEN;
 		}
-		if (PARITY_ODD_S.equals(s)) {
+		if (PARITY_ODD_S.toLowerCase().equals(s)) {
 			return PARITY_ODD;
 		}
 		return PARITY_NO;

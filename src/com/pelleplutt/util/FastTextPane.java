@@ -252,6 +252,25 @@ public class FastTextPane extends JPanel {
     scrlP.getVerticalScrollBar().setValue(scrlP.getVerticalScrollBar().getValue() + lines * amount);
   }
   
+  public void scrollPagesRelative(int i) {
+    JScrollPane scrlP = getScroll();
+    if (scrlP == null) return;
+    int amount = (scrlP.getVerticalScrollBar().getMaximum() * getVisibleRect().height) / getTotalHeightPx();
+    scrlP.getVerticalScrollBar().setValue(scrlP.getVerticalScrollBar().getValue() + amount*i);
+  }
+  
+  public void scrollHorizontalRelative(int i) {
+    JScrollPane scrlP = getScroll();
+    if (scrlP == null) return;
+    scrlP.getHorizontalScrollBar().setValue(scrlP.getHorizontalScrollBar().getValue() + fontHPx * i);
+  }
+
+  public void scrollToEnd() {
+    JScrollPane scrlP = getScroll();
+    if (scrlP == null) return;
+    scrlP.getVerticalScrollBar().setValue(scrlP.getVerticalScrollBar().getMaximum());
+  }
+
   public int getYForLineNumber(int lineNbr) {
     return lineNbr * fontHPx;
   }
@@ -366,6 +385,7 @@ public class FastTextPane extends JPanel {
   
   
   public void paint(Graphics og) {
+    if (og == null) return;
     Graphics2D g = (Graphics2D)og;
     g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
         RenderingHints.VALUE_ANTIALIAS_ON);
@@ -609,20 +629,14 @@ public class FastTextPane extends JPanel {
       private static final long serialVersionUID = -1443733874776516263L;
       @Override
       public void actionPerformed(ActionEvent e) {
-        JScrollPane scrlP = getScroll();
-        if (scrlP == null) return;
-        int amount = (scrlP.getVerticalScrollBar().getMaximum() * getVisibleRect().height) / getTotalHeightPx();
-        scrlP.getVerticalScrollBar().setValue(scrlP.getVerticalScrollBar().getValue() - amount);
+        scrollPagesRelative(-1);
       }
     });
     actionMap.put("pagedown", new AbstractAction() {
       private static final long serialVersionUID = -8653322027672633784L;
       @Override
       public void actionPerformed(ActionEvent e) {
-        JScrollPane scrlP = getScroll();
-        if (scrlP == null) return;
-        int amount = (scrlP.getVerticalScrollBar().getMaximum() * getVisibleRect().height) / getTotalHeightPx();
-        scrlP.getVerticalScrollBar().setValue(scrlP.getVerticalScrollBar().getValue() + amount);
+        scrollPagesRelative(1);
       }
     });
     actionMap.put("lineup", new AbstractAction() {
