@@ -56,6 +56,7 @@ public class FastTextPane extends JPanel {
     selectionStyle.bg = Color.gray;
     selectionStyle.bold = false;
     setFocusable(true);
+    setDoubleBuffered(true);
     addMouseListener(new MouseAdapter() {
       @Override
       public void mousePressed(MouseEvent me) {
@@ -101,7 +102,7 @@ public class FastTextPane extends JPanel {
   
   void onDocChanged() {
     recalcSize();
-    repaint();
+    //repaint();
   }
   
   void onDocRepaint() {
@@ -116,7 +117,7 @@ public class FastTextPane extends JPanel {
   void onCleared() {
     longestStringWidth = 8;
     recalcSize();
-    repaint();
+    //repaint();
   }
   
   public void addText(String s, int id, Color fg, Color bg, boolean bold) {
@@ -248,14 +249,14 @@ public class FastTextPane extends JPanel {
   public void scrollLinesRelative(int lines) {
     JScrollPane scrlP = getScroll();
     if (scrlP == null) return;
-    int amount = (scrlP.getVerticalScrollBar().getMaximum() * fontHPx) / getTotalHeightPx();
+    int amount = (int)(((long)scrlP.getVerticalScrollBar().getMaximum() * fontHPx) / (long)getTotalHeightPx());
     scrlP.getVerticalScrollBar().setValue(scrlP.getVerticalScrollBar().getValue() + lines * amount);
   }
   
   public void scrollPagesRelative(int i) {
     JScrollPane scrlP = getScroll();
     if (scrlP == null) return;
-    int amount = (scrlP.getVerticalScrollBar().getMaximum() * getVisibleRect().height) / getTotalHeightPx();
+    int amount = (int)(((long)scrlP.getVerticalScrollBar().getMaximum() * (long)getVisibleRect().height) / (long)getTotalHeightPx());
     scrlP.getVerticalScrollBar().setValue(scrlP.getVerticalScrollBar().getValue() + amount*i);
   }
   
@@ -384,22 +385,22 @@ public class FastTextPane extends JPanel {
   }
   
   
-  public void paint(Graphics og) {
+  public void paintComponent(Graphics og) {
     if (og == null) return;
+    og.setColor(Color.black);
+    og.fillRect(0, 0, getWidth(), getHeight());
     Graphics2D g = (Graphics2D)og;
     g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
         RenderingHints.VALUE_ANTIALIAS_ON);
     g.setFont(getFont());
-    g.setColor(getBackground());
-    g.fillRect(0, 0, getWidth(), getHeight());
-    g.setColor(getForeground());
     final Rectangle visRect = getVisibleRect();
     int visLine = visRect.y / fontHPx;
     int y = visLine * fontHPx;
     final int visMaxY = visRect.y + visRect.height;
     final int maxLine = countLines();
+    g.setColor(getForeground());
     while (y < visMaxY && visLine < maxLine) {
-      Line l =doc.lines.get(visLine);
+      Line l = doc.lines.get(visLine);
       paintLineShards(g, y, l);
       visLine++;
       y += fontHPx;
@@ -735,6 +736,7 @@ public class FastTextPane extends JPanel {
     public void mouseWheelMoved(MouseWheelEvent e) {
       JScrollPane scrlP = getScroll();
       if (scrlP != null) {
+        if (getTotalHeightPx() <= 0) return;
         int amount = (scrlP.getVerticalScrollBar().getMaximum() * fontHPx) / getTotalHeightPx();
         scrlP.getVerticalScrollBar().setValue(scrlP.getVerticalScrollBar().getValue() + 4 * amount * e.getWheelRotation());
       }
