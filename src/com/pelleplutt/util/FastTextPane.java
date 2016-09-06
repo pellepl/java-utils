@@ -1,10 +1,10 @@
-
 package com.pelleplutt.util;
 
 import java.awt.Color;
 import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.Font;
+import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Point;
@@ -37,9 +37,18 @@ public class FastTextPane extends JPanel {
   
   int selectionMeld = COLOR_SEL_MERGE;
   
+  String newLine = System.getProperty("line.separator");
+  boolean rectangularSelection;
   int selectedStartOffset = -1;
   int selectedEndOffset = -1;
   int anchorOffset = -1;
+  int anchorRow = -1;
+  int anchorX = -1;
+  int selectedStartRow = -1;
+  int selectedStartX = -1;
+  int selectedEndRow = -1;
+  int selectedEndX = -1;
+
   int longestStringWidth = 0;
   int fontHPx;
   Style selectionStyle = new Style();
@@ -81,7 +90,7 @@ public class FastTextPane extends JPanel {
     synchronized (doc.lines) {
       for (Line line : doc.lines) {
         sb.append(line.string);
-        if (line.nl) sb.append('\n');
+        if (line.nl) sb.append(newLine);
       }
     }
     
@@ -89,15 +98,28 @@ public class FastTextPane extends JPanel {
   }
   
   public String getSelectedText() {
-    if (selectedStartOffset >= 0 && selectedEndOffset > selectedStartOffset) {
-      return getText().substring(selectedStartOffset, Math.min(doc.len, selectedEndOffset));
+    if (rectangularSelection) {
+      StringBuilder sb = new StringBuilder();
+      for (int l = Math.min(countLines(), selectedStartRow); l <= Math.min(countLines() - 1, selectedEndRow); l++) {
+        Line line = doc.lines.get(l);
+        int sOffs = getLineOffsetAt(l, selectedStartX);
+        int eOffs = getLineOffsetAt(l, selectedEndX);
+        sb.append(line.string.substring(sOffs, eOffs));
+        sb.append(newLine);
+      }
+      return sb.toString();
     } else {
-      return null;
+      if (selectedStartOffset >= 0 && selectedEndOffset > selectedStartOffset) {
+        return getText().substring(selectedStartOffset, Math.min(doc.len, selectedEndOffset));
+      } else {
+        return null;
+      }
     }
   }
-  
+
   public void setText(String s) {
     doc.setText(s);
+    unselect();
   }
   
   void onDocChanged() {
@@ -130,14 +152,31 @@ public class FastTextPane extends JPanel {
   
   public void select(int startOffs, int endOffs) {
     if (startOffs > doc.len || endOffs < startOffs) return;
+    rectangularSelection = false;
     selectedStartOffset = Math.max(0, startOffs);
     selectedEndOffset = Math.min(doc.len, endOffs);
+    repaint();
+  }
+  
+  public void select(int startRow, int startX, int endRow, int endX) {
+    if (startRow > countLines() || endRow < startRow) return;
+    if (endX < startX) return;
+    rectangularSelection = true;
+    selectedStartRow = startRow;
+    selectedStartX = startX;
+    selectedEndRow = endRow;
+    selectedEndX = endX;
     repaint();
   }
   
   public void unselect() {
     selectedStartOffset = -1;
     selectedEndOffset = -1;
+    anchorOffset = -1;
+    selectedStartRow = -1;
+    selectedEndRow = -1;
+    anchorRow = -1;
+    rectangularSelection = false;
     repaint();
   }
   
@@ -292,6 +331,20 @@ public class FastTextPane extends JPanel {
     return line.offs;
   }
   
+  public int getLineOffsetAt(int lineNbr, int x) {
+    if (lineNbr < 0 || lineNbr >= countLines()) return 0;
+    x -= 3;
+    Line line = doc.lines.get(lineNbr);
+    String str = line.string;
+    int len = line.nl ? line.len - 1 : line.len;
+    FontMetrics fm = getFontMetrics(getFont());
+    int offs = 0;
+    while (offs < len && fm.stringWidth(str.substring(0, offs)) < x) {
+      offs++;
+    }
+    return offs;
+  }
+  
   public String getLineByOffset(int offset) {
     return getLineByLineNumber(doc.getLineNumberByOffset(offset));
   }
@@ -401,7 +454,7 @@ public class FastTextPane extends JPanel {
     g.setColor(getForeground());
     while (y < visMaxY && visLine < maxLine) {
       Line l = doc.lines.get(visLine);
-      paintLineShards(g, y, l);
+      paintLineShards(g, y, l, visLine);
       visLine++;
       y += fontHPx;
     }
@@ -438,9 +491,14 @@ public class FastTextPane extends JPanel {
   Style shardStyle = new Style();
   boolean shardSelected = false;
   
-  protected void paintLineShards(Graphics2D g, int y, Line line) {
-    selectionStyle.lineStartOffs = selectedStartOffset - line.offs;
-    selectionStyle.lineEndOffs = selectedEndOffset - line.offs;
+  protected void paintLineShards(Graphics2D g, int y, Line line, int lineNbr) {
+    if (!rectangularSelection && selectedStartOffset >= 0) {
+      selectionStyle.lineStartOffs = selectedStartOffset - line.offs;
+      selectionStyle.lineEndOffs = selectedEndOffset - line.offs;
+    } else if (rectangularSelection && selectedStartRow >= 0) {
+      selectionStyle.lineStartOffs = getLineOffsetAt(lineNbr, selectedStartX);
+      selectionStyle.lineEndOffs = getLineOffsetAt(lineNbr, selectedEndX);
+    }
     int curOffs = 0;
     int x = 0;
     while (curOffs < line.len) {
@@ -448,7 +506,7 @@ public class FastTextPane extends JPanel {
       shardStyle.bg = null;
       shardStyle.bold = false;
       shardSelected = false;
-      int nextOffs = findShardStyle(line, curOffs);
+      int nextOffs = findShardStyle(line, curOffs, lineNbr);
       int strNextOffs = Math.min(line.nl ? line.len - 1 : line.len, nextOffs);
       String shardStr = line.string.substring(curOffs, strNextOffs);
       final int shardTextW = getFontMetrics(getFont()).stringWidth(shardStr);
@@ -506,11 +564,16 @@ public class FastTextPane extends JPanel {
    * @param offs
    * @return next offset
    */
-  protected int findShardStyle(Line line, int offs) {
+  protected int findShardStyle(Line line, int offs, int lineNbr) {
     int selNextOffs = Integer.MAX_VALUE;
     int styleNextOffs = Integer.MAX_VALUE;
     // check selection
-    if (selectionStyle.lineEndOffs < offs || selectionStyle.lineStartOffs >= line.len) {
+    if (!rectangularSelection && (selectionStyle.lineEndOffs < offs || selectionStyle.lineStartOffs >= line.len)) {
+      // no selection
+      selNextOffs = line.len;
+    } else if (rectangularSelection &&
+        (lineNbr < selectedStartRow || lineNbr > selectedEndRow ||
+            selectionStyle.lineEndOffs < offs || selectionStyle.lineStartOffs >= line.len)) {
       // no selection
       selNextOffs = line.len;
     } else {
@@ -698,26 +761,62 @@ public class FastTextPane extends JPanel {
     public void mousePressed(MouseEvent e) {
       anchorOffset = -1;
       if (e.getButton() == MouseEvent.BUTTON1) {
-        selectedStartOffset = getOffsetAt(e.getX(), e.getY());
-        anchorOffset = selectedStartOffset; 
-        selectedEndOffset = anchorOffset;
+        rectangularSelection = (e.getModifiers() & InputEvent.SHIFT_MASK) != 0;
+        if (rectangularSelection) {
+          selectedStartRow = getLineNumberAt(e.getY());
+          selectedStartX = e.getX();
+          selectedEndRow = selectedStartRow; 
+          selectedEndX = selectedStartX;
+          anchorRow = selectedStartRow;
+          anchorX = selectedStartX;
+        } else {
+          selectedStartOffset = getOffsetAt(e.getX(), e.getY());
+          anchorOffset = selectedStartOffset; 
+          selectedEndOffset = anchorOffset;
+        }
         repaint();
       }
     }
     
     @ Override
     public void mouseDragged(MouseEvent e) {
-      if (anchorOffset >= 0) {
-        int offset = getOffsetAt(e.getX(), e.getY());
-        if (offset == anchorOffset) {
-          selectedStartOffset = anchorOffset;
-          selectedEndOffset = anchorOffset + 1;
-        } else if (offset < anchorOffset) {
-          selectedStartOffset = offset;
-          selectedEndOffset = anchorOffset;
+      if (anchorOffset >= 0 || anchorRow >= 0) {
+        if (rectangularSelection) {
+          int line = getLineNumberAt(e.getY());
+          int selX = e.getX();
+          if (line == anchorRow && selX == anchorX) {
+            selectedStartRow = anchorRow;
+            selectedEndRow = anchorRow;
+            selectedStartX = anchorX;
+            selectedEndX = anchorX + 1;
+          } else {
+            if (line < anchorRow) {
+              selectedStartRow = line;
+              selectedEndRow = anchorRow;
+            } else {
+              selectedStartRow = anchorRow;
+              selectedEndRow = line;
+            }
+            if (selX < anchorX) {
+              selectedStartX = selX;
+              selectedEndX = anchorX;
+            } else {
+              selectedStartX = anchorX;
+              selectedEndX = selX;
+            }
+          }
         } else {
-          selectedStartOffset = anchorOffset;
-          selectedEndOffset = offset + 1;
+          int offset = getOffsetAt(e.getX(), e.getY());
+          if (offset == anchorOffset) {
+            selectedStartOffset = anchorOffset;
+            selectedEndOffset = anchorOffset + 1;
+          } else if (offset < anchorOffset) {
+            selectedStartOffset = offset;
+            selectedEndOffset = anchorOffset;
+          } else {
+            selectedStartOffset = anchorOffset;
+            selectedEndOffset = offset + 1;
+          }
         }
         JScrollPane p = getScroll();
         if (p != null) {
