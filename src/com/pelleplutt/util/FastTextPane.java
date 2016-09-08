@@ -514,7 +514,7 @@ public class FastTextPane extends JPanel {
       Color bg = null;
       boolean bold = false;
 
-    if (!shardSelected) {
+      if (!shardSelected) {
         // no selection
         fg = shardStyle.fg;
         bg = shardStyle.bg;

@@ -563,9 +563,11 @@ public class AppSystem {
   }
 
   public synchronized static void disposeAll() {
-    for (Disposable d : disposables) {
+    while (!disposables.isEmpty()) {
+      Disposable d = disposables.get(0);
       try {
-        d.dispose();
+        Log.println("dispose of "+ d);
+        dispose(d);
       } catch (Throwable t) {
         Log.printStackTrace(t);
       }
