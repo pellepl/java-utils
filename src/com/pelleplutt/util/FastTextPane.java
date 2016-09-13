@@ -13,6 +13,7 @@ import java.awt.RenderingHints;
 import java.awt.Toolkit;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.StringSelection;
+import java.awt.datatransfer.Transferable;
 import java.awt.event.ActionEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
@@ -24,10 +25,13 @@ import java.util.List;
 
 import javax.swing.AbstractAction;
 import javax.swing.ActionMap;
+import javax.swing.JComponent;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JViewport;
 import javax.swing.KeyStroke;
+import javax.swing.SwingUtilities;
+import javax.swing.TransferHandler;
 
 public class FastTextPane extends JPanel {
   private static final long serialVersionUID = -4049699159411811667L;
@@ -53,6 +57,9 @@ public class FastTextPane extends JPanel {
   int fontHPx;
   Style selectionStyle = new Style();
   Doc doc;
+  
+  volatile boolean dragArmed;
+  volatile boolean dragActive;
 
   public FastTextPane() {
     doc = new Doc();
@@ -72,6 +79,7 @@ public class FastTextPane extends JPanel {
         ((JPanel) me.getSource()).requestFocusInWindow();
       }
     });
+    setTransferHandler(new FTPTransferHandler());
   }
   
   public Doc getDocument() {
@@ -98,6 +106,7 @@ public class FastTextPane extends JPanel {
   }
   
   public String getSelectedText() {
+  	if (!isSelected()) return null;
     if (rectangularSelection) {
       StringBuilder sb = new StringBuilder();
       for (int l = Math.min(countLines(), selectedStartRow); l <= Math.min(countLines() - 1, selectedEndRow); l++) {
@@ -109,11 +118,7 @@ public class FastTextPane extends JPanel {
       }
       return sb.toString();
     } else {
-      if (selectedStartOffset >= 0 && selectedEndOffset > selectedStartOffset) {
-        return getText().substring(selectedStartOffset, Math.min(doc.len, selectedEndOffset));
-      } else {
-        return null;
-      }
+      return getText().substring(selectedStartOffset, Math.min(doc.len, selectedEndOffset));
     }
   }
 
@@ -142,12 +147,22 @@ public class FastTextPane extends JPanel {
     //repaint();
   }
   
+  public void addText(String s, Style style) {
+    doc.addText(s, style);
+  }
+
   public void addText(String s, int id, Color fg, Color bg, boolean bold) {
-    doc.addText(s, id, fg, bg, bold);
+    doc.addText(s, new Style(id, fg, bg, bold));
   }
   
   public void addText(String s) {
-    doc.addText(s, Integer.MIN_VALUE, null, null, false);
+    doc.addText(s, null);
+  }
+  
+  public boolean isSelected() {
+  	return 
+  			(!rectangularSelection && selectedStartOffset >= 0 && selectedEndOffset > selectedStartOffset) ||
+  			(rectangularSelection && selectedStartRow >= 0 && selectedEndRow >= selectedStartRow);
   }
   
   public void select(int startOffs, int endOffs) {
@@ -181,19 +196,31 @@ public class FastTextPane extends JPanel {
   }
   
   public void addStyleByOffset(int styleId, Color fg, Color bg, boolean bold, int startOffs, int endOffs) {
-    doc.addStyleByOffset(styleId, fg, bg, bold, startOffs, endOffs);
+    doc.addStyleByOffset(new Style(styleId, fg, bg, bold), startOffs, endOffs);
+  }
+  public void addStyleByOffset(Style s, int startOffs, int endOffs) {
+    doc.addStyleByOffset(s, startOffs, endOffs);
   }
   
   public void addStyleByLine(int styleId, Color fg, Color bg, boolean bold, int startLine, int endLine) {
-    doc.addStyleByLine(styleId, fg, bg, bold, startLine, endLine);
+    doc.addStyleByLine(new Style(styleId, fg, bg, bold), startLine, endLine);
+  }
+  public void addStyleByLine(Style s, int startLine, int endLine) {
+    doc.addStyleByLine(s, startLine, endLine);
   }
   
   public void addStyleByLineAndOffset(int styleId, Color fg, Color bg, boolean bold, int lineNbr, int startOffs, int endOffs) {
-    doc.addStyleByLineAndOffset(styleId, fg, bg, bold, lineNbr, startOffs, endOffs);
+    doc.addStyleByLineAndOffset(new Style(styleId, fg, bg, bold), lineNbr, startOffs, endOffs);
+  }
+  public void addStyleByLineAndOffset(Style s, int lineNbr, int startOffs, int endOffs) {
+    doc.addStyleByLineAndOffset(s, lineNbr, startOffs, endOffs);
   }
   
   public void removeStyle(int styleId) {
     doc.removeStyle(styleId);
+  }  
+  public void removeStyle(Style style) {
+    doc.removeStyle(style.id);
   }
   
   public int countLines() {
@@ -202,6 +229,15 @@ public class FastTextPane extends JPanel {
   
   public int getTextLength() {
     return doc.len;
+  }
+  
+  public Style[] getStylesForLine(int line) {
+    if (line >= 0 && line < countLines()) {
+      List<Style> l = doc.lines.get(line).styles;
+      return l == null ? null : l.toArray(new Style[l.size()]);
+    } else {
+      return null;
+    }
   }
   
   public String getTextAtLine(int line) {
@@ -288,15 +324,21 @@ public class FastTextPane extends JPanel {
   public void scrollLinesRelative(int lines) {
     JScrollPane scrlP = getScroll();
     if (scrlP == null) return;
-    int amount = (int)(((long)scrlP.getVerticalScrollBar().getMaximum() * fontHPx) / (long)getTotalHeightPx());
-    scrlP.getVerticalScrollBar().setValue(scrlP.getVerticalScrollBar().getValue() + lines * amount);
+    long totH = getTotalHeightPx();
+    if (totH > 0) {
+      int amount = (int)(((long)scrlP.getVerticalScrollBar().getMaximum() * fontHPx) / totH);
+      scrlP.getVerticalScrollBar().setValue(scrlP.getVerticalScrollBar().getValue() + lines * amount);
+    }
   }
   
   public void scrollPagesRelative(int i) {
     JScrollPane scrlP = getScroll();
     if (scrlP == null) return;
-    int amount = (int)(((long)scrlP.getVerticalScrollBar().getMaximum() * (long)getVisibleRect().height) / (long)getTotalHeightPx());
-    scrlP.getVerticalScrollBar().setValue(scrlP.getVerticalScrollBar().getValue() + amount*i);
+    long totH = getTotalHeightPx();
+    if (totH > 0) {
+      int amount = (int)(((long)scrlP.getVerticalScrollBar().getMaximum() * (long)getVisibleRect().height) / totH);
+      scrlP.getVerticalScrollBar().setValue(scrlP.getVerticalScrollBar().getValue() + amount*i);
+    }
   }
   
   public void scrollHorizontalRelative(int i) {
@@ -440,7 +482,7 @@ public class FastTextPane extends JPanel {
   
   public void paintComponent(Graphics og) {
     if (og == null) return;
-    og.setColor(Color.black);
+    og.setColor(getBackground());
     og.fillRect(0, 0, getWidth(), getHeight());
     Graphics2D g = (Graphics2D)og;
     g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
@@ -637,18 +679,35 @@ public class FastTextPane extends JPanel {
     return countLines() * fontHPx;
   }
 
-  protected static class Style {
-    public Style(Color fg, Color bg, boolean bold) {
+  /**
+   * Style class 
+   */
+  public static class Style {
+    public final int id;
+    Color fg, bg;
+    boolean bold;
+    int lineStartOffs, lineEndOffs;
+    public Style(int id, Color fg, Color bg, boolean bold) {
+      this.id = id;
       this.fg = fg;
       this.bg = bg;
       this.bold = bold;
     }
-    public Style() {
+    Style(Style refStyle) {
+      id = refStyle.id;
+      fg = refStyle.fg;
+      bg = refStyle.bg;
+      bold = refStyle.bold;
     }
-    public int id;
-    Color fg, bg;
-    boolean bold;
-    int lineStartOffs, lineEndOffs;
+    Style() {
+      id = Integer.MIN_VALUE;
+    }
+    public int getLineStartOffset() {
+      return lineStartOffs;
+    }
+    public int getLineEndOffset() {
+      return lineEndOffs;
+    }
   }
   
   protected static class Line {
@@ -755,31 +814,64 @@ public class FastTextPane extends JPanel {
     addMouseWheelListener(mouseEventReceiver);
     
   }
+  
+  public boolean isWithinSelection(Point p) {
+  	if (!isSelected()) return false;
+  	if (rectangularSelection) {
+  		int row = getLineNumberAt(p.y);
+  		return
+  				p.x >= selectedStartX && p.x <= selectedEndX &&
+  				row >= selectedStartRow && row <= selectedEndRow;
+  	} else {
+  		int offset = getOffsetAt(p.x, p.y);
+  		return offset >= selectedStartOffset && offset <= selectedEndOffset;
+  	}
+  }
 
   final MouseAdapter mouseEventReceiver = new MouseAdapter() {
-    @ Override
+    @Override
     public void mousePressed(MouseEvent e) {
       anchorOffset = -1;
-      if (e.getButton() == MouseEvent.BUTTON1) {
-        rectangularSelection = (e.getModifiers() & InputEvent.SHIFT_MASK) != 0;
-        if (rectangularSelection) {
-          selectedStartRow = getLineNumberAt(e.getY());
-          selectedStartX = e.getX();
-          selectedEndRow = selectedStartRow; 
-          selectedEndX = selectedStartX;
-          anchorRow = selectedStartRow;
-          anchorX = selectedStartX;
-        } else {
-          selectedStartOffset = getOffsetAt(e.getX(), e.getY());
-          anchorOffset = selectedStartOffset; 
-          selectedEndOffset = anchorOffset;
-        }
+      if (SwingUtilities.isLeftMouseButton(e)) {
+      	if (isWithinSelection(e.getPoint())) {
+      		dragArmed = true;
+      	} else {
+	        rectangularSelection = (e.getModifiers() & InputEvent.SHIFT_MASK) != 0;
+	        if (rectangularSelection) {
+	          selectedStartRow = getLineNumberAt(e.getY());
+	          selectedStartX = e.getX();
+	          selectedEndRow = selectedStartRow; 
+	          selectedEndX = selectedStartX;
+	          anchorRow = selectedStartRow;
+	          anchorX = selectedStartX;
+	        } else {
+	          selectedStartOffset = getOffsetAt(e.getX(), e.getY());
+	          anchorOffset = selectedStartOffset; 
+	          selectedEndOffset = anchorOffset;
+	        }
+      	}
         repaint();
       }
     }
     
-    @ Override
+    @Override
+    public void mouseReleased(MouseEvent e) {
+      if (SwingUtilities.isLeftMouseButton(e)) {
+        if (dragArmed && !dragActive) {
+          unselect();
+        }
+        dragArmed = false;
+      }
+    }
+    
+    @Override
     public void mouseDragged(MouseEvent e) {
+      if (dragArmed) {
+        dragArmed = false;
+        dragActive = true;
+        initiateDrag(e);
+        return;
+      }
       if (anchorOffset >= 0 || anchorRow >= 0) {
         if (rectangularSelection) {
           int line = getLineNumberAt(e.getY());
@@ -831,7 +923,7 @@ public class FastTextPane extends JPanel {
       repaint();
     }
     
-    @ Override
+    @Override
     public void mouseWheelMoved(MouseWheelEvent e) {
       JScrollPane scrlP = getScroll();
       if (scrlP != null) {
@@ -841,6 +933,36 @@ public class FastTextPane extends JPanel {
       }
     }
   };
+  
+  
+  void initiateDrag(MouseEvent e) {
+    JComponent c = (JComponent)e.getComponent();
+    TransferHandler th = c.getTransferHandler();
+    if (th == null) return;
+    th.exportAsDrag(c, e, TransferHandler.COPY);
+  }
+  
+  /**
+   * TransferHandler
+   */
+  class FTPTransferHandler extends TransferHandler {
+    @Override
+    public int getSourceActions(JComponent c) {
+      return COPY;
+    }
+    
+    @Override
+    public Transferable createTransferable(JComponent c) {
+      return new StringSelection(((FastTextPane)c).getSelectedText());
+    }
+
+    @Override
+    public void exportDone(JComponent c, Transferable t, int action) {
+      FastTextPane ftp = (FastTextPane)c;
+      ftp.dragActive = false;
+      ftp.dragArmed = false;
+    }
+  }
   
   /**
    * FastTextPane document model
@@ -902,7 +1024,7 @@ public class FastTextPane extends JPanel {
       fireOnCleared();
     }
     
-    public void addStyleByOffset(int styleId, Color fg, Color bg, boolean bold, int startOffs, int endOffs) {
+    public void addStyleByOffset(Style refStyle, int startOffs, int endOffs) {
       if (startOffs > len || endOffs < startOffs) return;
       startOffs = Math.max(0, startOffs);
       endOffs = Math.min(len, endOffs);
@@ -911,11 +1033,7 @@ public class FastTextPane extends JPanel {
       while (curOffs < len && curOffs < endOffs) {
         Line line = lines.get(curLine);
         if (line.offs + line.len > startOffs) {
-          Style s = new Style();
-          s.id = styleId;
-          s.fg = fg;
-          s.bg = bg;
-          s.bold = bold;
+          Style s = new Style(refStyle);
           s.lineStartOffs = Math.max(0, startOffs - line.offs);
           s.lineEndOffs = Math.min(line.len, endOffs - line.offs - 1);
           line.addStyle(s);
@@ -930,18 +1048,14 @@ public class FastTextPane extends JPanel {
       return lines.size();
     }
     
-    public void addStyleByLine(int styleId, Color fg, Color bg, boolean bold, int startLine, int endLine) {
+    public void addStyleByLine(Style refStyle, int startLine, int endLine) {
       if (startLine >= countLines() || endLine < startLine) return;
       synchronized(lines) {
         startLine = Math.max(0, startLine);
         endLine = Math.min(countLines()-1, endLine);
         for (int l = startLine; l <= endLine; l++) {
           Line line = lines.get(l);
-          Style s = new Style();
-          s.id = styleId;
-          s.fg = fg;
-          s.bg = bg;
-          s.bold = bold;
+          Style s = new Style(refStyle);
           s.lineStartOffs = 0;
           s.lineEndOffs = line.len;
           line.addStyle(s);
@@ -950,15 +1064,11 @@ public class FastTextPane extends JPanel {
       fireOnDocRepaint();
     }
     
-    public void addStyleByLineAndOffset(int styleId, Color fg, Color bg, boolean bold, int lineNbr, int startOffs, int endOffs) {
+    public void addStyleByLineAndOffset(Style refStyle, int lineNbr, int startOffs, int endOffs) {
       if (lineNbr >= countLines() || lineNbr < 0) return;
       synchronized(lines) {
         Line line = lines.get(lineNbr);
-        Style s = new Style();
-        s.id = styleId;
-        s.fg = fg;
-        s.bg = bg;
-        s.bold = bold;
+        Style s = new Style(refStyle);
         s.lineStartOffs = startOffs;
         s.lineEndOffs = endOffs;
         line.addStyle(s);
@@ -982,7 +1092,7 @@ public class FastTextPane extends JPanel {
     }
 
     
-    public void addText(String s, int id, Color fg, Color bg, boolean bold) {
+    public void addText(String s, Style style) {
       if (s == null) return;
       int prevLen;
       synchronized (lines) {
@@ -1011,14 +1121,14 @@ public class FastTextPane extends JPanel {
           }
         }
       }
-      if (id != Integer.MIN_VALUE) {
-        addStyleByOffset(id, fg, bg, bold, prevLen, len);
+      if (style != null) {
+        addStyleByOffset(style, prevLen, len);
       }
       fireOnDocChanged();
     }
     
     public void addText(String s) {
-      addText(s, Integer.MIN_VALUE, null, null, false);
+      addText(s, null);
     }
     
     protected void addLine(Line l) {
@@ -1101,5 +1211,5 @@ public class FastTextPane extends JPanel {
       
       return Math.max(0, Math.min(lineCnt-1, curLine));
     }
-  }
+  } // class Doc
 }
