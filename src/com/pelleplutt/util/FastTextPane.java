@@ -224,7 +224,7 @@ public class FastTextPane extends JPanel {
   }
   
   public int countLines() {
-    return doc.countLines();
+    return doc == null ? 0 : doc.countLines();
   }
   
   public int getTextLength() {
@@ -459,6 +459,7 @@ public class FastTextPane extends JPanel {
   protected void recalcSize() {
     int h = countLines() * fontHPx;
     int w = longestStringWidth;
+    if (__d == null) __d = new Dimension();
     __d.width = w;
     __d.height = h;
     setMinimumSize(__d);
@@ -693,7 +694,7 @@ public class FastTextPane extends JPanel {
       this.bg = bg;
       this.bold = bold;
     }
-    Style(Style refStyle) {
+    public Style(Style refStyle) {
       id = refStyle.id;
       fg = refStyle.fg;
       bg = refStyle.bg;
@@ -707,6 +708,30 @@ public class FastTextPane extends JPanel {
     }
     public int getLineEndOffset() {
       return lineEndOffs;
+    }
+    public void setFgColor(int hex) {
+      fg = new Color(hex);
+    }
+    public void setBgColor(int hex) {
+      bg = new Color(hex);
+    }
+    public void setBold(boolean bold) {
+      this.bold = bold;
+    }
+    public Color getFg() {
+      return fg;
+    }
+    public Color getBg() {
+      return bg;
+    }
+    public boolean getBold() {
+      return bold;
+    }
+    public boolean looksSame(Style s) {
+      return s.id == id &&
+          (fg != null && s.fg != null && fg.equals(s.fg) || fg == null && s.fg == null) &&
+          (bg != null && s.bg != null && bg.equals(s.bg) || bg == null && s.bg == null) &&
+          bold == s.bold;
     }
   }
   
@@ -725,6 +750,16 @@ public class FastTextPane extends JPanel {
     public void addStyle(Style s) {
       if (styles == null) {
         styles = new ArrayList<Style>();
+      }
+      int l = styles.size();
+      if (l > 1) {
+        Style pStyle = styles.get(l-1);
+        if (pStyle.looksSame(s)) {
+          if (pStyle.lineEndOffs + 1 == s.lineStartOffs) {
+            pStyle.lineEndOffs = s.lineEndOffs;
+            return;
+          }
+        }
       }
       styles.add(s);
     }
@@ -1090,7 +1125,48 @@ public class FastTextPane extends JPanel {
       }
       fireOnDocRepaint();
     }
-
+    
+    public void removeStylesByLineAndOffset(int lineNbr, int startOffs, int endOffs) {
+      if (lineNbr >= countLines() || lineNbr < 0) return;
+      synchronized(lines) {
+        Line line = lines.get(lineNbr);
+        if (line.styles == null) return;
+        List<Style> newStyles = new ArrayList<Style>();
+        for (Style s : line.styles) {
+          if (s.lineEndOffs < startOffs || s.lineStartOffs > endOffs) {
+            // no intersection
+            newStyles.add(s);
+          } else if (s.lineStartOffs < startOffs && s.lineEndOffs > endOffs) {
+            // split into two
+            Style pre = new Style(s);
+            pre.lineStartOffs = s.lineStartOffs;
+            pre.lineEndOffs = startOffs - 1;
+            Style post = new Style(s);
+            post.lineStartOffs = endOffs;
+            post.lineEndOffs = s.lineEndOffs;
+            newStyles.add(pre);
+            newStyles.add(post);
+          } else if (s.lineStartOffs >= startOffs && s.lineEndOffs <= endOffs) {
+            // remove completely
+            continue;
+          } else if (s.lineStartOffs < startOffs) {
+            // remove end part
+            Style frag = new Style(s);
+            frag.lineStartOffs = s.lineStartOffs;
+            frag.lineEndOffs = startOffs - 1;
+            newStyles.add(frag);
+          } else if (s.lineEndOffs > endOffs) {
+            // remove start part
+            Style frag = new Style(s);
+            frag.lineStartOffs = endOffs;
+            frag.lineEndOffs = s.lineEndOffs;
+            newStyles.add(frag);
+          }
+        }
+        line.styles = newStyles;
+      }
+      fireOnDocRepaint();
+    }
     
     public void addText(String s, Style style) {
       if (s == null) return;
@@ -1160,6 +1236,24 @@ public class FastTextPane extends JPanel {
         len += s.length();
         l.string += s;
         fireOnLineAdded(l.string);
+      }
+    }
+    
+    public void replaceLine(int lineNbr, String s) {
+      synchronized (lines) {
+        int lineCount = countLines();
+        Line l = lines.get(lineNbr);
+        int preLen = l.len + (l.nl ? - 1 : 0);
+        int newLen = s.length();
+        l.string = s;
+        l.len = newLen + (l.nl ? 1 : 0);
+        
+        for (int mLineNbr = lineNbr + 1; mLineNbr < lineCount; mLineNbr++) {
+          Line mLine = lines.get(mLineNbr);
+          mLine.offs += (newLen - preLen);
+        }
+        
+        len += (newLen - preLen);
       }
     }
     
