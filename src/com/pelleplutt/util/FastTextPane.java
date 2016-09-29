@@ -57,6 +57,9 @@ public class FastTextPane extends JPanel {
   int fontHPx;
   Style selectionStyle = new Style();
   Doc doc;
+  Font fontNorm;
+  Font fontBold;
+  boolean uglyBold = false;
   
   volatile boolean dragArmed;
   volatile boolean dragActive;
@@ -64,7 +67,7 @@ public class FastTextPane extends JPanel {
   public FastTextPane() {
     doc = new Doc();
     doc.listeners.add(this);
-    fontHPx = getFontMetrics(getFont()).getHeight();
+    updateFont(getFont());
     recalcSize();
     addKeyBindings();
     addMouseBindings();
@@ -119,6 +122,22 @@ public class FastTextPane extends JPanel {
       return sb.toString();
     } else {
       return getText().substring(selectedStartOffset, Math.min(doc.len, selectedEndOffset));
+    }
+  }
+  
+  public int getSelectionLineStart() {
+    if (rectangularSelection) {
+      return selectedStartRow;
+    } else {
+      return doc.getLineNumberByOffset(selectedStartOffset);
+    }
+  }
+
+  public int getSelectionLineEnd() {
+    if (rectangularSelection) {
+      return selectedEndRow;
+    } else {
+      return doc.getLineNumberByOffset(selectedEndOffset);
     }
   }
 
@@ -252,9 +271,19 @@ public class FastTextPane extends JPanel {
     doc.clear();
   }
   
+  void updateFont(Font font) {
+    fontNorm = font;
+    fontHPx = getFontMetrics(getFont()).getHeight();
+    fontBold = font.deriveFont(Font.BOLD);
+    int testWidthNorm = getFontMetrics(fontNorm).stringWidth("PETER RULES!!");
+    int testWidthBold = getFontMetrics(fontBold).stringWidth("PETER RULES!!");
+    uglyBold = testWidthBold != testWidthNorm;
+  }
+  
+  
   public void setFont(Font font) {
     super.setFont(font);
-    fontHPx = getFontMetrics(getFont()).getHeight();
+    updateFont(font);
     if (doc != null && doc.lines != null) {
       synchronized (doc.lines) {
         longestStringWidth = 0;
@@ -460,12 +489,18 @@ public class FastTextPane extends JPanel {
     int h = countLines() * fontHPx;
     int w = longestStringWidth;
     if (__d == null) __d = new Dimension();
-    __d.width = w;
-    __d.height = h;
-    setMinimumSize(__d);
-    setPreferredSize(__d);
-    setSize(__d);
+    if (__d.width != w || __d.height != h) {
+      __d.width = w;
+      __d.height = h;
+      setPreferredSize(__d);
+      JScrollPane sp = getScroll();
+      if (sp != null) {
+        sp.getViewport().revalidate();
+        sp.getVerticalScrollBar().revalidate();
+      }
+    }
   }
+
   
   protected JScrollPane getScroll() {
     Container c = getParent();
@@ -585,15 +620,23 @@ public class FastTextPane extends JPanel {
       if (bg != null) {
         g.setColor(bg);
         if (!line.nl || nextOffs < line.len) {
-          g.fillRect(x, y + 1, shardTextW + 1, fontHPx);
+          g.fillRect(x, y + 2, shardTextW + 1, fontHPx);
         } else {
-          g.fillRect(x, y + 1, getWidth(), fontHPx);
+          g.fillRect(x, y + 2, getWidth(), fontHPx);
         }
       }
       g.setColor(fg);
-      g.drawString(shardStr, x, y + fontHPx - 1);
       if (bold) {
-        g.drawString(shardStr, x + 1, y + fontHPx - 1);
+        if (uglyBold) {
+          g.drawString(shardStr, x, y + fontHPx - 1);
+          g.drawString(shardStr, x+1, y + fontHPx - 1);
+        } else {
+          g.setFont(fontBold);
+          g.drawString(shardStr, x, y + fontHPx - 1);
+          g.setFont(fontNorm);
+        }
+      } else {
+        g.drawString(shardStr, x, y + fontHPx - 1);
       }
 
       x += shardTextW;

@@ -4,12 +4,10 @@ import java.awt.Color;
 import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
+import java.awt.event.KeyEvent;
+import java.awt.event.KeyListener;
 
-import javax.swing.SwingUtilities;
-
-public class FastTermPane extends FastTextPane {
+public class FastTermPane extends FastTextPane implements KeyListener {
   int dimCols;
   int dimRows;
   int curCol;
@@ -18,34 +16,27 @@ public class FastTermPane extends FastTextPane {
   int fontWPx;
   boolean drawCursor = true;
   volatile boolean blinkCursor = true;
+  int scrRowMin = 0;
+  int scrRowMax = 0;
+  boolean terminal = false;
+  KeyListener keyListener;
 
   public FastTermPane() {
     super();
     dimCols = 80;
     dimRows = 25;
-    addMouseListener(new MouseAdapter() {
-      @Override
-      public void mouseClicked(MouseEvent me) {
-        if (SwingUtilities.isRightMouseButton(me)) {
-          int col = me.getX() / fontWPx;
-          int lines = Math.max(dimRows, doc.countLines());
-          int row = me.getY() / fontHPx;
-          row = row - (lines - dimRows);
-          setCursor(col, row);
-        }
-      }
-    });
-    Thread blinky = new Thread(new Runnable() {
-      public void run() {
-        while (true) {
-          AppSystem.sleep(500);
-          blinkCursor = !blinkCursor;
-          repaint();
-        }
-      }
-    });
-    blinky.setDaemon(true);
-    blinky.start();
+    addKeyListener(this);
+//    Thread blinky = new Thread(new Runnable() {
+//      public void run() {
+//        while (true) {
+//          AppSystem.sleep(500);
+//          blinkCursor = !blinkCursor;
+//          repaint();
+//        }
+//      }
+//    });
+//    blinky.setDaemon(true);
+//    blinky.start();
   }
   
   @Override
@@ -59,7 +50,6 @@ public class FastTermPane extends FastTextPane {
     curRow = Math.max(0, Math.min(dimRows, r));
     curCol = Math.max(0, Math.min(dimCols, c));
     blinkCursor = true;
-    System.out.println("set cursor " + curCol + "," + curRow + " docRow " + getLineNbrAtCursor() + " of " + countLines());
     repaint();
   }
   
@@ -91,6 +81,14 @@ public class FastTermPane extends FastTextPane {
     return dimRows;
   }
   
+  public void setScrollArea(int minRow, int maxRow) {
+    minRow = Math.max(0, Math.min(dimRows - 1, minRow));
+    maxRow = Math.max(0, Math.min(dimRows - 1, maxRow));
+    scrRowMin = minRow;
+    scrRowMax = maxRow;
+    System.out.println("scrlset " + minRow + "--" + maxRow);
+  }
+  
   public void setTermSize(int cols, int rows) {
     dimCols = cols;
     dimRows = rows;
@@ -104,13 +102,16 @@ public class FastTermPane extends FastTextPane {
   
   @Override
   protected void recalcSize() {
-    longestStringWidth = fixLongestStringWidth;
+    if (terminal) {
+      longestStringWidth = fixLongestStringWidth;
+    }
     super.recalcSize();
   }
   
   @Override
   protected void onCleared() {
     super.onCleared();
+    scrRowMax = scrRowMin = -1;
     setCursor(0,0);
   }
    
@@ -122,17 +123,29 @@ public class FastTermPane extends FastTextPane {
   
   @Override
   public void addText(String s) {
-    insertLines(s, null);
+    if (terminal) {
+      insertLines(s, null);
+    } else {
+      super.addText(s);
+    }
   }
   
   @Override
   public void addText(String s, int id, Color fg, Color bg, boolean bold) {
-    insertLines(s, new Style(id, fg, bg, bold));
+    if (terminal) {
+      insertLines(s, new Style(id, fg, bg, bold));
+    } else {
+      super.addText(s, id, fg, bg, bold);
+    }
   }
   
   @Override
   public void addText(String s, Style style) {
-    insertLines(s, style);
+    if (terminal) {
+      insertLines(s, style);
+    } else {
+      super.addText(s, style);
+    }
   }
   
   int indexOfAny(String str, char[] chars) {
@@ -170,10 +183,10 @@ public class FastTermPane extends FastTextPane {
           offs = indexOfAny(s, LF_CHARS, prevOffs);
           char c = s.charAt(prevOffs - 1);
           if (prevOffs > 0) {
+            curCol = 0;
             if (c == '\n') {
+              System.out.println("newline");
               nextRow();
-            } else if (c == '\r') {
-              curCol = 0;
             }
           }
         }
@@ -192,27 +205,65 @@ public class FastTermPane extends FastTextPane {
     do {
       if (curCol >= dimCols) {
         // end of row, new line
-        //System.out.println("EOR: nextRow");
         nextRow();
+        curCol = 0;
       }
       int rem = Math.min(strlen - offs, dimCols - curCol);
       rem = rem < 0 ? 0 : rem;
       if (rem > 0) {
-        insertString(s.substring(offs, offs + rem), style);
+        modifyLine(s.substring(offs, offs + rem), style);
       }
       offs += rem;
     } while (offs < strlen);
   }
   
-  // replace line at cursor position
-  protected void insertString(String s, Style style) {
-    curRow = Math.min(curRow, dimRows);
-    //System.out.println("INSERT @ " + curCol + "," + curRow);
-    int lineCount = doc.countLines();
+  // replace line at cursor position by inserting new text at cursor
+  protected void modifyLine(String s, Style style) {
+    ensureLinesAtCursor();
+    int lineNbr = getLineNbrAtCursor();
 
+    Line l = doc.lines.get(lineNbr);
+    int lineLen = l.string.length();
+    int strlen = s.length();
+    int styleStart = curCol;
+    int styleEnd = curCol + strlen;
+
+    System.out.println("inserting text at docrow " + lineNbr + " (" + (l == null ? "null" : l.len) + ") cursor " + 
+        curCol + "," + curRow + ", " + countLines() + " docrows (" + s + ")");
+    String pre;
+    if (l == null || curCol > lineLen) {
+      // cursor beyond line length, fill up
+      StringBuilder sb = new StringBuilder();
+      for (int i = 0; i < curCol - lineLen; i++) {
+        sb.append(' ');
+      }
+      s = getCharString(' ', curCol - lineLen) + s;
+      curCol = lineLen;
+      pre = l.string;
+    } else {
+      pre = l.string.substring(0, Math.min(lineLen, curCol));
+    }
+    
+    String oldStr = l.string;
+    String newStr = pre; 
+    newStr += s;
+    if (curCol + strlen < l.len) {
+      newStr += oldStr.substring(curCol + s.length());
+    }
+    doc.replaceLine(lineNbr, newStr);
+    doc.removeStylesByLineAndOffset(lineNbr, styleStart, styleEnd-1);
+    if (style != null) {
+      doc.addStyleByLineAndOffset(style, lineNbr, styleStart, styleEnd-1);
+    }
+    curCol += s.length();
+  }
+  
+  protected void ensureLinesAtCursor() {
+    curRow = Math.min(curRow, dimRows);
+    int lineCount = doc.countLines();
+  
     // if cursor beyond document rows, fill up
     while (curRow >= lineCount) {
-      //System.out.println("rfill " + curRow + " < " + lineCount);
       int oldCurRow = curRow;
       nextRow();
       curRow = oldCurRow;
@@ -223,80 +274,272 @@ public class FastTermPane extends FastTextPane {
     int lineNbr = getLineNbrAtCursor();
     if (lineNbr > lineCount) {
       // at end of document, need a newline
-      //System.out.println("NL: eod");
       int oldCurRow = curRow;
       newline();
       lineCount++;
       curRow = oldCurRow;
     }
-    Line l = doc.lines.get(lineNbr);
-    int lineLen = l.len;
-
-    System.out.println("inserting text at docrow " + lineNbr + " of " + lineCount + " (" + (l == null ? "null" : l.len) + ") cursor " + 
-        curCol + "," + curRow + ", " + countLines() + " docrows (" + s + ")");
-    
-    if (l == null || curCol > lineLen) {
-      // cursor beyond line length, fill up
-      StringBuilder sb = new StringBuilder();
-      for (int i = 0; i < curCol - lineLen; i++) {
-        sb.append(' ');
-      }
-
-      s = sb.toString() + s;
-      curCol = lineLen;
-    }
-    
-    int strlen = s.length();
-    String oldStr = l.string;
-    String newStr = oldStr.substring(0, Math.min(oldStr.length(), curCol));
-    newStr += s;
-    if (curCol + strlen < l.len) {
-      newStr += oldStr.substring(curCol + s.length());
-    }
-    doc.replaceLine(lineNbr, newStr);
-    doc.removeStylesByLineAndOffset(lineNbr, curCol, curCol + strlen);
-    if (style != null) {
-      doc.addStyleByLineAndOffset(style, lineNbr, curCol, curCol + strlen - 1);
-      repaint();
-    }
-    curCol += s.length();
   }
   
-  protected void nextRow() {
-    boolean nl = false;
-    if (curRow < dimRows-1) {
-      curRow++;
-    } else {
-      nl = true;
+  public void eraseLineFull() {
+    synchronized (doc.lines) {
+      ensureLinesAtCursor();
+      int lineNbr = getLineNbrAtCursor();
+      Line l = doc.lines.get(lineNbr);
+      doc.replaceLine(lineNbr, "");
+      doc.removeStylesByLineAndOffset(lineNbr, 0, l.len);
+      curCol = 0;
     }
-    if (nl || getLineNbrAtCursor() >= doc.countLines()) {
-      //System.out.println("NL: nextrow");
+  }
+  
+  public void eraseLineBefore() {
+    synchronized (doc.lines) {
+      ensureLinesAtCursor();
+      int lineNbr = getLineNbrAtCursor();
+      Line l = doc.lines.get(lineNbr);
+      String post = "";
+      if (curCol < l.string.length()) {
+        post = l.string.substring(curCol);
+      }
+      doc.replaceLine(lineNbr, getCharString(' ', curCol) + post);
+      doc.removeStylesByLineAndOffset(lineNbr, 0, curCol); // TODO 
+    }
+  }
+  
+  public void eraseLineAfter() {
+    synchronized (doc.lines) {
+      ensureLinesAtCursor();
+      int lineNbr = getLineNbrAtCursor();
+      Line l = doc.lines.get(lineNbr);
+      String pre = l.string.substring(0, Math.min(l.string.length(), curCol));
+      doc.replaceLine(lineNbr, pre);
+      doc.removeStylesByLineAndOffset(lineNbr, curCol, l.len); // TODO 
+    }
+  }
+  
+  public void deleteChars(int chars) {
+    synchronized (doc.lines) {
+      ensureLinesAtCursor();
+      int lineNbr = getLineNbrAtCursor();
+      Line l = doc.lines.get(lineNbr);
+      String orig = l.string;
+      String frag = orig.substring(0, Math.min(orig.length(), curCol));
+      if (orig.length() > curCol + chars) {
+        frag += orig.substring(curCol + chars);
+      }
+      doc.replaceLine(lineNbr, frag);
+      doc.removeStylesByLineAndOffset(lineNbr, curCol, chars); // TODO 
+    }
+  }
+
+  
+  public void nextRow() {
+    synchronized (doc.lines) {
+      boolean nl = false;
+      if (scrollAreaDefined()) {
+        if (curRow < scrRowMax) {
+          curRow++;
+        } else if (curRow == scrRowMax) {
+          System.out.println("nextRow.scroll +1");
+          scroll(1);
+        } else {
+          nl = true;
+        }
+      } else {
+        if (curRow < dimRows-1) {
+          curRow++;
+        } else {
+          nl = true;
+        }
+      }
+      if (nl || getLineNbrAtCursor() >= doc.countLines()) {
+        doc.addLine(new Line());
+        doc.fireOnDocChanged();
+      }
+    }
+  }
+  
+  public void prevRow() {
+    if (scrollAreaDefined()) {
+      System.out.println("prevRow curRow:" + curRow + " " + scrRowMin);
+      if (curRow <= scrRowMin) {
+        System.out.println("prevRow.scroll -1");
+        scroll(-1);
+      } else {
+        curRow--;
+      }
+    } else {
+      curRow--;
+    }
+    curRow = Math.max(0, curRow);
+  }
+  
+  void newline() {
+    boolean nl = true;
+    if (scrollAreaDefined()) {
+      if (curRow < scrRowMax) {
+        System.out.println("newline.scroll +1");
+        scroll(1);
+        nl = false;
+      }
+    } 
+    if (nl) {
       doc.addLine(new Line());
       doc.fireOnDocChanged();
+      if (curRow < dimRows-1) {
+        curRow++;
+      }
     }
     curCol = 0;
   }
   
+  protected boolean scrollAreaDefined() {
+    return scrRowMax > 0 && scrRowMax > scrRowMin;
+  }
   
-  protected void newline() {
-    doc.addLine(new Line());
-    doc.fireOnDocChanged();
-    curCol = 0;
-    if (curRow < dimRows-1) {
-      curRow++;
+  public void scroll(int relativeLines) {
+    if (relativeLines == 0 || !scrollAreaDefined()) {
+      return;
     }
+    
+    synchronized (doc.lines) {
+      int lineCount = doc.countLines()-1;
+      int dimRowsMin = Math.min(lineCount, dimRows);
+      int lineMin =  lineCount - (dimRowsMin - scrRowMin);
+      int lineMax =  lineCount - (dimRowsMin - scrRowMax);
+      if (lineMin >= lineMax) return;
+      
+      while (lineMax > lineCount) {
+        doc.addLine(new Line());
+        lineCount++;
+      }
+      
+      int offs;
+      int lenDelta = 0;
+      if (relativeLines > 0) {
+        int curLine = lineMin;
+        offs = doc.lines.get(curLine).offs;
+        // scroll down (visually up), make blanks at bottom
+        // 1. replace lines
+        while (curLine <= lineMax - relativeLines) {
+          Line src = doc.lines.get(curLine + relativeLines);
+          Line dst = doc.lines.get(curLine);
+          lenDelta = dst.len - src.len;
+          dst.offs = offs;
+          dst.len = src.len;
+          dst.string = src.string;
+          dst.styles = src.styles;
+          dst.nl = src.nl;
+          offs += dst.len;
+          curLine++;
+        }
+        // 2. fill with blanks
+        while (curLine <= lineMax) {
+          Line blank = doc.lines.get(curLine);
+          lenDelta = 1 - blank.len;
+          blank.offs = offs;
+          blank.nl = true;
+          blank.len = 1;
+          blank.string = "";
+          blank.styles = null;
+          offs += blank.len;
+          curLine++;
+        }
+        // 3. move offset of remaining lines
+        while (curLine <= lineCount) {
+          doc.lines.get(curLine++).offs -= lenDelta;
+        }
+      } else {
+        // scroll up (visually down), make blanks at top
+        int curLine = lineMin;
+        offs = doc.lines.get(curLine).offs;
+        int curLineRev = lineMax;
+        relativeLines = -relativeLines;
+        // 1. replace lines
+        while (curLineRev >= lineMin + relativeLines) {
+          Line dst = doc.lines.get(curLineRev);
+          Line src = doc.lines.get(curLineRev - relativeLines);
+          lenDelta = dst.len - src.len;
+          dst.len = src.len;
+          dst.string = src.string;
+          dst.styles = src.styles;
+          dst.nl = src.nl;
+          curLineRev--;
+        }
+        // 2. fill with blanks
+        while (curLineRev >= lineMin) {
+          Line blank = doc.lines.get(curLineRev);
+          lenDelta = 1 - blank.len;
+          blank.nl = true;
+          blank.len = 1;
+          blank.string = "";
+          blank.styles = null;
+          curLineRev--;
+        }
+        // 3. fix offset of all lines
+        while (curLine <= lineCount) {
+          Line l = doc.lines.get(curLine++);
+          l.offs = offs;
+          offs += l.len;
+        }
+      }
+      // adjust document length and fire change event
+      doc.len += lenDelta;
+      doc.fireOnDocChanged();
+    }
+  }
+  
+  String getCharString(char c, int length) {
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i < length; i++) {
+      sb.append(c);
+    }
+    return sb.toString();
+  }
+  
+  public void setTerminalMode(boolean term) {
+    System.out.println("terminal mode : " + term);
+    terminal = term;
+    recalcSize();
+    repaint();
+  }
+
+  public boolean isTerminalMode() {
+    return terminal;
+  }
+  
+  public void setKeyListener(KeyListener k) {
+    keyListener = k;
   }
 
   @Override
   public void paint(Graphics og) {
     super.paint(og);
-    if (drawCursor && blinkCursor) {
+    if (terminal && drawCursor && blinkCursor) {
       Graphics2D g = (Graphics2D)og;
       g.setXORMode(getBackground());
       g.setColor(getForeground());
       int y = getLineNbrAtCursor() * fontHPx;
       int x = curCol * fontWPx;
-      g.fillRect(x, y+1, fontWPx, fontHPx);
+      g.fillRect(x, y+2, fontWPx, fontHPx);
     }
+  }
+
+  @Override
+  public void keyTyped(KeyEvent e) {
+    if (!terminal || keyListener == null) return;
+    keyListener.keyTyped(e);
+  }
+
+  @Override
+  public void keyPressed(KeyEvent e) {
+    if (!terminal || keyListener == null) return;
+    keyListener.keyPressed(e);
+  }
+
+  @Override
+  public void keyReleased(KeyEvent e) {
+    if (!terminal || keyListener == null) return;
+    keyListener.keyReleased(e);
   }
 }
