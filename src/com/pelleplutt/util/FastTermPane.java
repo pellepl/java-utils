@@ -287,7 +287,7 @@ public class FastTermPane extends FastTextPane implements KeyListener {
       int lineNbr = getLineNbrAtCursor();
       Line l = doc.lines.get(lineNbr);
       doc.replaceLine(lineNbr, "");
-      doc.removeStylesByLineAndOffset(lineNbr, 0, l.len);
+      doc.removeStylesOnLine(lineNbr);
       curCol = 0;
     }
   }
@@ -302,7 +302,7 @@ public class FastTermPane extends FastTextPane implements KeyListener {
         post = l.string.substring(curCol);
       }
       doc.replaceLine(lineNbr, getCharString(' ', curCol) + post);
-      doc.removeStylesByLineAndOffset(lineNbr, 0, curCol); // TODO 
+      doc.removeStylesByLineAndOffset(lineNbr, 0, curCol); 
     }
   }
   
@@ -313,7 +313,7 @@ public class FastTermPane extends FastTextPane implements KeyListener {
       Line l = doc.lines.get(lineNbr);
       String pre = l.string.substring(0, Math.min(l.string.length(), curCol));
       doc.replaceLine(lineNbr, pre);
-      doc.removeStylesByLineAndOffset(lineNbr, curCol, l.len); // TODO 
+      doc.removeStylesByLineAndOffset(lineNbr, curCol, l.len); 
     }
   }
   

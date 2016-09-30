@@ -1169,6 +1169,15 @@ public class FastTextPane extends JPanel {
       fireOnDocRepaint();
     }
     
+    public void removeStylesOnLine(int lineNbr) {
+      if (lineNbr >= countLines() || lineNbr < 0) return;
+      synchronized(lines) {
+        Line line = lines.get(lineNbr);
+        if (line.styles == null) return;
+        line.styles.clear();;
+      }
+    }
+    
     public void removeStylesByLineAndOffset(int lineNbr, int startOffs, int endOffs) {
       if (lineNbr >= countLines() || lineNbr < 0) return;
       synchronized(lines) {
