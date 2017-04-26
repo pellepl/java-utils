@@ -553,7 +553,27 @@ public class AppSystem {
       }
     });
   }
-
+  
+  /**
+   * Returns files in a given directory, recursive or not.
+   * 
+   * @param dir         The directory.
+   * @param namePattern The name pattern for files to remove. Asterisk for wildcard.
+   * @param recurse     Whether to recurse or not.
+   */
+  public static List<File> findFiles(String dir, String namePattern,
+      boolean recurse) {
+    final List<File> res = new ArrayList<File>();
+    visitDirectory(dir, namePattern, recurse, new AppSystemFileVisitor() {
+      @Override
+      public boolean visit(Path file, BasicFileAttributes attrs) {
+        res.add(file.toFile());
+        return true;
+      }
+    });
+    return res;
+  }
+  
   static List<Disposable> disposables = new ArrayList<Disposable>();
 
   public synchronized static void addDisposable(Disposable d) {
@@ -590,8 +610,63 @@ public class AppSystem {
 
   public static void waitSilently(Object lock, long ms) {
     try {
-      lock.wait(ms);
+      if (ms == 0) {
+        lock.wait();
+      } else {
+        lock.wait(ms);
+      }
     } catch (InterruptedException e) {
     }
+  }
+
+  public static byte[] parseBytes(String hex) {
+    hex = hex.toLowerCase();
+    List<Byte> b = new ArrayList<Byte>();
+    int d = 0;
+    int nibcount = 0;
+    for (int i = 0; i < hex.length(); i++) {
+      char c = hex.charAt(i);
+      boolean hexChar = false;
+      if (c >= '0' && c <= '9') {
+        d = (d<<4) | (c - '0');
+        nibcount++;
+        hexChar = true;
+      } else if (c >= 'a' && c <= 'f') {
+        d = (d<<4) | (c - 'a' + 10);
+        nibcount++;
+        hexChar = true;
+      } 
+      if (hexChar && nibcount >= 2) {
+        b.add((byte)d);
+        nibcount = d = 0;
+      }
+      if (!hexChar && nibcount > 0) {
+        b.add((byte)d);
+        nibcount = d = 0;
+      }
+    }
+    if (nibcount > 0) {
+      b.add((byte)d);
+    }
+    if (!b.isEmpty()) {
+      byte[] barr = new byte[b.size()];
+      for (int i = 0; i < barr.length; i++) {
+        barr[i] = b.get(i);
+      }
+      return barr;
+    }
+    return null;
+  }
+  
+  static final String ___h = "0123456789abcdef"; 
+  public static String formatBytes(byte[] b) {
+    StringBuilder s = new StringBuilder(b.length*3-1);
+    for (int i = 0; i < b.length; i++) {
+      int x = b[i];
+      s.append(___h.charAt((x>>4) & 0xf));
+      s.append(___h.charAt(x & 0xf));
+      if (i < b.length-1) s.append(' ');
+    }
+    return s.toString();
   }
 }

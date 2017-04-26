@@ -148,7 +148,7 @@ public class FastTextPane extends JPanel {
   
   void onDocChanged() {
     recalcSize();
-    //repaint();
+    repaint();
   }
   
   void onDocRepaint() {

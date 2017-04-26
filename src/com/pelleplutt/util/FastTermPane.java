@@ -20,23 +20,13 @@ public class FastTermPane extends FastTextPane implements KeyListener {
   int scrRowMax = 0;
   boolean terminal = false;
   KeyListener keyListener;
+  boolean dbg = false;
 
   public FastTermPane() {
     super();
     dimCols = 80;
     dimRows = 25;
     addKeyListener(this);
-//    Thread blinky = new Thread(new Runnable() {
-//      public void run() {
-//        while (true) {
-//          AppSystem.sleep(500);
-//          blinkCursor = !blinkCursor;
-//          repaint();
-//        }
-//      }
-//    });
-//    blinky.setDaemon(true);
-//    blinky.start();
   }
   
   @Override
@@ -86,7 +76,7 @@ public class FastTermPane extends FastTextPane implements KeyListener {
     maxRow = Math.max(0, Math.min(dimRows - 1, maxRow));
     scrRowMin = minRow;
     scrRowMax = maxRow;
-    System.out.println("scrlset " + minRow + "--" + maxRow);
+    if (dbg) System.out.println("scrlset " + minRow + "--" + maxRow);
   }
   
   public void setTermSize(int cols, int rows) {
@@ -185,7 +175,7 @@ public class FastTermPane extends FastTextPane implements KeyListener {
           if (prevOffs > 0) {
             curCol = 0;
             if (c == '\n') {
-              System.out.println("newline");
+              if (dbg) System.out.println("newline");
               nextRow();
             }
           }
@@ -228,7 +218,7 @@ public class FastTermPane extends FastTextPane implements KeyListener {
     int styleStart = curCol;
     int styleEnd = curCol + strlen;
 
-    System.out.println("inserting text at docrow " + lineNbr + " (" + (l == null ? "null" : l.len) + ") cursor " + 
+    if (dbg) System.out.println("inserting text at docrow " + lineNbr + " (" + (l == null ? "null" : l.len) + ") cursor " + 
         curCol + "," + curRow + ", " + countLines() + " docrows (" + s + ")");
     String pre;
     if (l == null || curCol > lineLen) {
@@ -285,7 +275,7 @@ public class FastTermPane extends FastTextPane implements KeyListener {
     synchronized (doc.lines) {
       ensureLinesAtCursor();
       int lineNbr = getLineNbrAtCursor();
-      Line l = doc.lines.get(lineNbr);
+      //Line l = doc.lines.get(lineNbr);
       doc.replaceLine(lineNbr, "");
       doc.removeStylesOnLine(lineNbr);
       curCol = 0;
@@ -340,7 +330,7 @@ public class FastTermPane extends FastTextPane implements KeyListener {
         if (curRow < scrRowMax) {
           curRow++;
         } else if (curRow == scrRowMax) {
-          System.out.println("nextRow.scroll +1");
+          if (dbg) System.out.println("nextRow.scroll +1");
           scroll(1);
         } else {
           nl = true;
@@ -361,9 +351,9 @@ public class FastTermPane extends FastTextPane implements KeyListener {
   
   public void prevRow() {
     if (scrollAreaDefined()) {
-      System.out.println("prevRow curRow:" + curRow + " " + scrRowMin);
+      if (dbg) System.out.println("prevRow curRow:" + curRow + " " + scrRowMin);
       if (curRow <= scrRowMin) {
-        System.out.println("prevRow.scroll -1");
+        if (dbg) System.out.println("prevRow.scroll -1");
         scroll(-1);
       } else {
         curRow--;
@@ -378,7 +368,7 @@ public class FastTermPane extends FastTextPane implements KeyListener {
     boolean nl = true;
     if (scrollAreaDefined()) {
       if (curRow < scrRowMax) {
-        System.out.println("newline.scroll +1");
+        if (dbg) System.out.println("newline.scroll +1");
         scroll(1);
         nl = false;
       }
@@ -498,7 +488,7 @@ public class FastTermPane extends FastTextPane implements KeyListener {
   }
   
   public void setTerminalMode(boolean term) {
-    System.out.println("terminal mode : " + term);
+    if (dbg) System.out.println("terminal mode : " + term);
     terminal = term;
     recalcSize();
     repaint();
