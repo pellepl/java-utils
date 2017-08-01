@@ -911,23 +911,31 @@ public class FastTextPane extends JPanel {
     public void mousePressed(MouseEvent e) {
       anchorOffset = -1;
       if (SwingUtilities.isLeftMouseButton(e)) {
-      	if (isWithinSelection(e.getPoint())) {
-      		dragArmed = true;
-      	} else {
-	        rectangularSelection = (e.getModifiers() & InputEvent.SHIFT_MASK) != 0;
-	        if (rectangularSelection) {
-	          selectedStartRow = getLineNumberAt(e.getY());
-	          selectedStartX = e.getX();
-	          selectedEndRow = selectedStartRow; 
-	          selectedEndX = selectedStartX;
-	          anchorRow = selectedStartRow;
-	          anchorX = selectedStartX;
-	        } else {
-	          selectedStartOffset = getOffsetAt(e.getX(), e.getY());
-	          anchorOffset = selectedStartOffset; 
-	          selectedEndOffset = anchorOffset;
-	        }
-      	}
+        if (e.getClickCount() == 2) {
+          int row = getLineNumberAt(e.getY());
+          selectedStartRow = row;
+          selectedEndRow = row;
+          selectedStartOffset = getOffsetAt(0, e.getY());
+          selectedEndOffset = getOffsetAt(Integer.MAX_VALUE, e.getY());
+        } else {
+        	if (isWithinSelection(e.getPoint())) {
+        		dragArmed = true;
+        	} else {
+  	        rectangularSelection = (e.getModifiers() & InputEvent.SHIFT_MASK) != 0;
+  	        if (rectangularSelection) {
+  	          selectedStartRow = getLineNumberAt(e.getY());
+  	          selectedStartX = e.getX();
+  	          selectedEndRow = selectedStartRow; 
+  	          selectedEndX = selectedStartX;
+  	          anchorRow = selectedStartRow;
+  	          anchorX = selectedStartX;
+  	        } else {
+  	          selectedStartOffset = getOffsetAt(e.getX(), e.getY());
+  	          anchorOffset = selectedStartOffset; 
+  	          selectedEndOffset = anchorOffset;
+  	        }
+        	}
+        }
         repaint();
       }
     }
