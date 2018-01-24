@@ -910,15 +910,44 @@ public class FastTextPane extends JPanel {
     @Override
     public void mousePressed(MouseEvent e) {
       anchorOffset = -1;
+      boolean withinsel = isWithinSelection(e.getPoint());
       if (SwingUtilities.isLeftMouseButton(e)) {
-        if (e.getClickCount() == 2) {
+        if (e.getClickCount() >= 2) {
           int row = getLineNumberAt(e.getY());
           selectedStartRow = row;
           selectedEndRow = row;
-          selectedStartOffset = getOffsetAt(0, e.getY());
-          selectedEndOffset = getOffsetAt(Integer.MAX_VALUE, e.getY());
+          if (e.getClickCount() > 2) {
+            // select full row
+            selectedStartOffset = getOffsetAt(0, e.getY());
+            selectedEndOffset = getOffsetAt(Integer.MAX_VALUE, e.getY());
+          } else {
+            // select word
+            int lineOffset = getOffsetAt(e.getX(), e.getY());
+            if (row < doc.lines.size()) {
+              Line line = doc.lines.get(row);
+              int offs = lineOffset - line.offs;
+              String preStr = line.string.substring(0, offs);
+              String postStr = line.string.substring(offs);
+              int prec = preStr.lastIndexOf(' ');
+              int postc = postStr.indexOf(' ');
+              if (offs < line.string.length() && 
+                  line.string.charAt(offs) != ' ' && 
+                  prec >= 0) {
+                // found word
+                selectedStartOffset = line.offs + prec + 1;
+                if (postc < 0)
+                  selectedEndOffset = line.offs + line.len - 1;
+                else
+                  selectedEndOffset = line.offs + preStr.length() + postc;
+              } else {
+                // no word
+                selectedStartOffset = getOffsetAt(0, e.getY());
+                selectedEndOffset = getOffsetAt(Integer.MAX_VALUE, e.getY());
+              }
+            } 
+          }
         } else {
-        	if (isWithinSelection(e.getPoint())) {
+        	if (withinsel) {
         		dragArmed = true;
         	} else {
   	        rectangularSelection = (e.getModifiers() & InputEvent.SHIFT_MASK) != 0;
