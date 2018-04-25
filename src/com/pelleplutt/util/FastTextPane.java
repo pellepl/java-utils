@@ -1296,6 +1296,22 @@ public class FastTextPane extends JPanel {
       addText(s, null);
     }
     
+    static String tabcheck(String s, int offs) {
+      int ix;
+      if ((ix = s.indexOf('\t')) < 0) return s;
+      int preix = 0;
+      StringBuilder sb = new StringBuilder();
+      while (ix >= 0) {
+        sb.append(s.substring(preix, ix));
+        int tbsz = 8 - (offs+sb.length()) % 8;
+        while (tbsz-- > 0) sb.append(' ');
+        preix = ix + 1;
+        ix = s.indexOf('\t', preix);
+      }
+      sb.append(s.substring(preix, s.length()));
+      return sb.toString();
+    }
+    
     protected void addLine(Line l) {
       synchronized (lines) {
         // add nl to previous line
@@ -1321,6 +1337,7 @@ public class FastTextPane extends JPanel {
         } else {
           l = lines.get(countLines() - 1);
         }
+        s = tabcheck(s, l.len);
         l.len += s.length();
         len += s.length();
         l.string += s;
@@ -1329,6 +1346,7 @@ public class FastTextPane extends JPanel {
     }
     
     public void replaceLine(int lineNbr, String s) {
+      s = tabcheck(s, 0);
       synchronized (lines) {
         int lineCount = countLines();
         Line l = lines.get(lineNbr);
