@@ -16,6 +16,7 @@
 
 package com.pelleplutt.util;
 
+import java.awt.image.BufferedImage;
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -45,6 +46,7 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import javax.imageio.ImageIO;
 import javax.tools.JavaCompiler;
 import javax.tools.ToolProvider;
 
@@ -296,8 +298,8 @@ public class AppSystem {
   }
 
   /**
-   * Compiles, loads and instantiates a java file of given interface. Each
-   * java file will get its own classloader.
+   * Compiles, loads and instantiates a java file of given interface. Each java
+   * file will get its own classloader.
    * 
    * @param classpath
    *          path of the java files source tree
@@ -472,29 +474,37 @@ public class AppSystem {
     String fname2 = filename.replaceAll("\\*", Integer.toString(__maxNum + 1));
     return new File(parent, fname2);
   }
-  
+
   public static interface AppSystemFileVisitor {
     /**
      * Called from visitDirectory to handle a visited file.
-     * @param file    the file
-     * @param attrs   the file attributes
+     * 
+     * @param file
+     *          the file
+     * @param attrs
+     *          the file attributes
      * @return true to continue, false to terminate the visitor
      */
     public boolean visit(Path file, BasicFileAttributes attrs);
   }
-  
+
   /**
    * Visits files in a given directory, recursive or not.
    * 
-   * @param dir         The directory to visit.
-   * @param namePattern The name pattern for matching files. Asterisk for wildcard.
-   * @param recurse     Whether to recurse or not.
-   * @param v           The visitor.
+   * @param dir
+   *          The directory to visit.
+   * @param namePattern
+   *          The name pattern for matching files. Asterisk for wildcard.
+   * @param recurse
+   *          Whether to recurse or not.
+   * @param v
+   *          The visitor.
    */
   public static void visitDirectory(String dir, String namePattern,
       final boolean recurse, final AppSystemFileVisitor v) {
     final String parent = dir == null ? "." : Paths.get(dir).toString();
-    String patStr = "\\Q" + namePattern.replaceAll("\\*", "\\\\E(.*)\\\\Q") + "\\E";
+    String patStr = "\\Q" + namePattern.replaceAll("\\*", "\\\\E(.*)\\\\Q")
+        + "\\E";
     final Pattern pattern = Pattern.compile(patStr);
     final PathMatcher filematcher = FileSystems.getDefault()
         .getPathMatcher("glob:" + namePattern);
@@ -503,7 +513,8 @@ public class AppSystem {
         @Override
         public FileVisitResult preVisitDirectory(Path dir,
             BasicFileAttributes attrs) throws IOException {
-          return dir.equals(Paths.get(parent)) || recurse ? FileVisitResult.CONTINUE
+          return dir.equals(Paths.get(parent)) || recurse
+              ? FileVisitResult.CONTINUE
               : FileVisitResult.SKIP_SUBTREE;
         }
 
@@ -535,13 +546,16 @@ public class AppSystem {
     } catch (IOException ioe) {
     }
   }
-  
+
   /**
    * Removes files in a given directory, recursive or not.
    * 
-   * @param dir         The directory.
-   * @param namePattern The name pattern for files to remove. Asterisk for wildcard.
-   * @param recurse     Whether to recurse or not.
+   * @param dir
+   *          The directory.
+   * @param namePattern
+   *          The name pattern for files to remove. Asterisk for wildcard.
+   * @param recurse
+   *          Whether to recurse or not.
    */
   public static void removeFiles(String dir, String namePattern,
       boolean recurse) {
@@ -553,13 +567,16 @@ public class AppSystem {
       }
     });
   }
-  
+
   /**
    * Returns files in a given directory, recursive or not.
    * 
-   * @param dir         The directory.
-   * @param namePattern The name pattern for files to remove. Asterisk for wildcard.
-   * @param recurse     Whether to recurse or not.
+   * @param dir
+   *          The directory.
+   * @param namePattern
+   *          The name pattern for files to remove. Asterisk for wildcard.
+   * @param recurse
+   *          Whether to recurse or not.
    */
   public static List<File> findFiles(String dir, String namePattern,
       boolean recurse) {
@@ -573,7 +590,7 @@ public class AppSystem {
     });
     return res;
   }
-  
+
   static List<Disposable> disposables = new ArrayList<Disposable>();
 
   public synchronized static void addDisposable(Disposable d) {
@@ -586,7 +603,7 @@ public class AppSystem {
     while (!disposables.isEmpty()) {
       Disposable d = disposables.get(0);
       try {
-        Log.println("dispose of "+ d);
+        Log.println("dispose of " + d);
         dispose(d);
       } catch (Throwable t) {
         Log.printStackTrace(t);
@@ -628,25 +645,25 @@ public class AppSystem {
       char c = hex.charAt(i);
       boolean hexChar = false;
       if (c >= '0' && c <= '9') {
-        d = (d<<4) | (c - '0');
+        d = (d << 4) | (c - '0');
         nibcount++;
         hexChar = true;
       } else if (c >= 'a' && c <= 'f') {
-        d = (d<<4) | (c - 'a' + 10);
+        d = (d << 4) | (c - 'a' + 10);
         nibcount++;
         hexChar = true;
-      } 
+      }
       if (hexChar && nibcount >= 2) {
-        b.add((byte)d);
+        b.add((byte) d);
         nibcount = d = 0;
       }
       if (!hexChar && nibcount > 0) {
-        b.add((byte)d);
+        b.add((byte) d);
         nibcount = d = 0;
       }
     }
     if (nibcount > 0) {
-      b.add((byte)d);
+      b.add((byte) d);
     }
     if (!b.isEmpty()) {
       byte[] barr = new byte[b.size()];
@@ -657,16 +674,41 @@ public class AppSystem {
     }
     return null;
   }
-  
-  static final String ___h = "0123456789abcdef"; 
+
+  static final String ___h = "0123456789abcdef";
+
   public static String formatBytes(byte[] b) {
-    StringBuilder s = new StringBuilder(b.length*3-1);
+    StringBuilder s = new StringBuilder(b.length * 3 - 1);
     for (int i = 0; i < b.length; i++) {
       int x = b[i];
-      s.append(___h.charAt((x>>4) & 0xf));
+      s.append(___h.charAt((x >> 4) & 0xf));
       s.append(___h.charAt(x & 0xf));
-      if (i < b.length-1) s.append(' ');
+      if (i < b.length - 1)
+        s.append(' ');
     }
     return s.toString();
   }
+
+  public static BufferedImage loadImage(String res) {
+    File f = new File("res/" + res);
+    if (!f.exists()) {
+      String urlPath = res;
+      java.net.URL imgURL = Thread.currentThread().getContextClassLoader()
+          .getResource(urlPath);
+      try {
+        return ImageIO.read(imgURL);
+      } catch (IOException e) {
+        e.printStackTrace();
+        return null;
+      }
+    } else {
+      try {
+        return ImageIO.read(f);
+      } catch (IOException e) {
+        e.printStackTrace();
+        return null;
+      }
+    }
+  }
+
 }
