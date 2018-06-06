@@ -255,8 +255,27 @@ public class AppSystem {
    * @throws InterruptedException
    */
   public static ProcessResult run(String cmd, String[] envp, File execDir,
-      boolean getOut, boolean getErr) throws IOException, InterruptedException {
-    Process p = Runtime.getRuntime().exec(cmd, envp, execDir);
+		  boolean getOut, boolean getErr) throws IOException, InterruptedException {
+	String[] spl = cmd.split("\\s");
+    List<String> conspl = new ArrayList<String>();
+    char quote = '\0';
+    for (String s : spl) {
+      if (quote == '\0') {
+        if (s.charAt(0) == '\'' || s.charAt(0) == '"') {
+          quote = s.charAt(0);
+          s = s.substring(1);
+        }
+        conspl.add(s);
+      } else {
+        if (s.charAt(s.length() - 1) == quote) {
+          s = s.substring(0, s.length() - 1);
+          quote = '\0';
+        }
+        String ss = conspl.remove(conspl.size() - 1);
+        conspl.add(ss + " " + s);
+      }
+    }
+    Process p = Runtime.getRuntime().exec(conspl.toArray(new String[conspl.size()]), envp, execDir);
     final String nl = System.getProperty("line.separator");
     BufferedReader out = null;
     BufferedReader err = null;
