@@ -33,6 +33,7 @@ public class WinPortConnector extends PortConnector {
 
 	public void doDisconnect() throws IOException {
 		port.close();
+		port = null;  
 	}
 
 	@Override
