@@ -51,8 +51,17 @@ public abstract class PortConnector {
    * @return
    */
   public static PortConnector getPortConnector() {
+    // TODO PETER check if there is python3 and pyserial installed, else use native
     PortConnector pc = null;
     String os = System.getProperty("os.name");
+    os = "alwaysusepython";
+    if (System.getProperty(PySerialPortUARTSocket.PROP_PATH_BIN) == null) {
+      System.setProperty(PySerialPortUARTSocket.PROP_PATH_BIN, System
+          .getProperty("user.home")
+          + File.separatorChar
+          + System.getProperty(UARTSocket.PROP_PATH_APPNAME, UARTSocket.PATH_DEFAULT_APPNAME)
+          + File.separatorChar + "py" + File.separatorChar + "pyuartsocket.py");
+    }
     if (os.contains("Windows")) {
       if (System.getProperty(WinSerialPortUARTSocket.PROP_PATH_BIN) == null) {
         System.setProperty(WinSerialPortUARTSocket.PROP_PATH_BIN, System
@@ -86,8 +95,7 @@ public abstract class PortConnector {
       }
       pc = new LinuxPortConnector();
     } else {
-      // TODO if mac
-      pc = null;
+      pc = new PyPortConnector();
     }
     return pc;
   }
