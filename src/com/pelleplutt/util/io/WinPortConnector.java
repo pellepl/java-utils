@@ -25,7 +25,8 @@ public class WinPortConnector extends PortConnector {
 
 	public void doConnect(Port portSetting) throws Exception {
 		UARTSocket winUartSocket = new WinSerialPortUARTSocket();
-		port = (WinSerialPortUARTSocket)WinSerialPortUARTSocket.getPort(portSetting.portName, winUartSocket);
+		port = (WinSerialPortUARTSocket)WinSerialPortUARTSocket.createServer(
+		    portSetting.portName, true, winUartSocket);
 		configure(portSetting);
 		setInputStream(port.openInputStream());
 		setOutputStream(port.openOutputStream());
@@ -138,7 +139,8 @@ public class WinPortConnector extends PortConnector {
 	public String[] getDevices() {
 		try {
 		  if (port == null) {
-		    port = (WinSerialPortUARTSocket)WinSerialPortUARTSocket.getPort(null, new WinSerialPortUARTSocket());
+		    port = (WinSerialPortUARTSocket)WinSerialPortUARTSocket.createServer(
+		        null, false, new WinSerialPortUARTSocket());
 		  }
 			return port.getDevices();
 		} catch (Throwable t) {

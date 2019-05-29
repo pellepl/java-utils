@@ -39,7 +39,8 @@ public class LinuxPortConnector extends PortConnector {
 
 	public void doConnect(Port portSetting) throws Exception {
 		UARTSocket linuxUartSocket = new LinuxSerialPortUARTSocket();
-		port = (LinuxSerialPortUARTSocket)LinuxSerialPortUARTSocket.getPort(portSetting.portName, linuxUartSocket);
+		port = (LinuxSerialPortUARTSocket)LinuxSerialPortUARTSocket.createServer(
+		    portSetting.portName, true, linuxUartSocket);
 		configure(portSetting);
 		setInputStream(port.openInputStream());
 		setOutputStream(port.openOutputStream());

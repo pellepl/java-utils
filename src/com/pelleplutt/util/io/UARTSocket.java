@@ -49,6 +49,7 @@ public abstract class UARTSocket {
   
   String serialport;
   volatile boolean isOpen = false;
+  volatile boolean dataClientConnected = false;
   Socket sCtrl, sData;
   InputStream ctrlInStr;
   BufferedReader ctrlIn;
@@ -62,89 +63,93 @@ public abstract class UARTSocket {
   int serverPort = serverPort_g;
 
   
-  public static UARTSocket getPort(String portname, UARTSocket socketport) throws IOException {
-    boolean serverStandalone = portname == null;
-    if (serverStandalone) portname = "localhost";
-    portname = socketport.preprocessPortName(portname);
-    socketport.serialport = portname;
+  public static UARTSocket createServer(String serialport, boolean connectDataClient, UARTSocket uartsocket) throws IOException {
+    Log.println("portname:" + serialport + " uartsocket:" + uartsocket.serialport + "@" + uartsocket.server + ":" + uartsocket.serverPort);
+    serialport = uartsocket.preprocessPortName(serialport);
+    uartsocket.serialport = serialport;
     
-    int portIx = portname.indexOf(':');
+    // check if serial port is on url form, e.g. ttyUSB4@192.168.0.4:8000
+    int portIx = serialport.indexOf(':');
     if (portIx > 0) {
-      int serverPort = Integer.parseInt(portname.substring(portIx+1));
-      socketport.serverPort = serverPort;
-      portname = portname.substring(0, portIx);
+      int serverPort = Integer.parseInt(serialport.substring(portIx+1));
+      uartsocket.serverPort = serverPort;
+      serialport = serialport.substring(0, portIx);
     }
-    int serverNameIx = portname.indexOf('@');
+    int serverNameIx = serialport.indexOf('@');
     if (serverNameIx > 0) {
-      socketport.serialport = portname.substring(0,serverNameIx);
-      socketport.server = portname.substring(serverNameIx+1);
+      uartsocket.serialport = serialport.substring(0,serverNameIx);
+      uartsocket.server = serialport.substring(serverNameIx+1);
     }
     
-    if (socketport.server.equalsIgnoreCase("localhost") || socketport.server.equals("127.0.0.1")) {
-      try {
-        boolean ok = false;
-        int tries = 5;
-        while (tries-- > 0 && !ok) {
+    try {
+      boolean ok = false;
+      int tries = 5;
+      while (tries-- > 0 && !ok) {
+        try {
+          startServer(uartsocket);
+          uartsocket.setup(connectDataClient);
+          ok = true;
+        } catch (ConnectException e) {
+          // port probably busy, server not opened
+          Log.println("could not connect to port " + uartsocket.server + ":" + uartsocket.serverPort + " : " + e.getMessage());
           try {
-            startServer(socketport);
-            socketport.setup(serverStandalone);
-            ok = true;
-          } catch (ConnectException e) {
-            // port probably busy, server not opened
-            Log.println("could not connect to port " + socketport.serverPort + " : " + e.getMessage());
-            try {
-              socketport.close();
-            } catch (Throwable ignore) {}
-            try {
-              killServer(socketport.serverPort);
-            } catch (Throwable ignore) {}
-            socketport.serverPort = serverPort_g++;
-          }
+            uartsocket.close();
+          } catch (Throwable ignore) {}
+          try {
+            killServer(uartsocket.server, uartsocket.serverPort);
+          } catch (Throwable ignore) {}
+          uartsocket.serverPort = serverPort_g++;
         }
-        socketport.isOpen = ok;
-      } catch (UnknownHostException e) {
-        throw new IOException(e);
       }
-    } else {
-      
+      uartsocket.isOpen = ok;
+    } catch (UnknownHostException e) {
+      throw new IOException(e);
     }
-    return socketport;
+
+    return uartsocket;
   }
   
   String preprocessPortName(String portname) {
     return portname;
   }
   
-  void setup(boolean standalone) throws UnknownHostException, IOException {
+  void setup(boolean connectDataClient) throws UnknownHostException, IOException {
     // open control channel socket
+    Log.println("setting up server @ " + server + ":" + serverPort + ", connectDataClient:" + connectDataClient);
     sCtrl = new Socket(server, serverPort);
     ctrlInStr = sCtrl.getInputStream();
     ctrlIn = new BufferedReader(new InputStreamReader(ctrlInStr));
     ctrlOut = new DataOutputStream(sCtrl.getOutputStream());
+    if (connectDataClient) {
+      connectDataClient();
+    }
+  }
+  
+  void connectDataClient() throws IOException {
     String[] res;
-    if (!standalone) {
-        // open device
-        res = controlCommand(true, "O " + serialport, 0);
-        // get control channel index
-        res = controlCommand(true, "I", 1);
-        int ctrlIndex = Integer.parseInt(res[0]);
-        
-        // open data channel socket
-        sData = new Socket(server, serverPort);
-        //sData.setSendBufferSize(128);
-        //sData.setReceiveBufferSize(128);
-        dataIn = sData.getInputStream();
-        dataOut = sData.getOutputStream();
-        dataCIn = new BufferedReader(new InputStreamReader(dataIn));
-        dataCOut = new DataOutputStream(dataOut);
-        // attach channel to control channel, make data channel
-        res = controlCommand(false, "A " + ctrlIndex, 0);
-        }
+    // open device
+    res = controlCommand(true, "O " + serialport, 0);
+    // get control channel index
+    res = controlCommand(true, "I", 1);
+    int ctrlIndex = Integer.parseInt(res[0]);
+    
+    // open data channel socket
+    sData = new Socket(server, serverPort);
+    //sData.setSendBufferSize(128);
+    //sData.setReceiveBufferSize(128);
+    dataIn = sData.getInputStream();
+    dataOut = sData.getOutputStream();
+    dataCIn = new BufferedReader(new InputStreamReader(dataIn));
+    dataCOut = new DataOutputStream(dataOut);
+    // attach channel to control channel, make data channel
+    res = controlCommand(false, "A " + ctrlIndex, 0);
+    dataClientConnected = true;
   }
 
   public void configure(int baud, int databits, int parity, int stopbits,
       boolean hardwareHandshake, boolean xonxoff, boolean modemControl, long timeout)
       throws IOException {
+    if (!dataClientConnected) connectDataClient();
     sData.setSoTimeout((int)timeout + ((timeout > 0) ? 100 : 0));
     timeout /= 100;
     String command = "U"
@@ -158,6 +163,7 @@ public abstract class UARTSocket {
   }
   
   public String[] getDevices() throws IOException {
+    Log.println("getting devices @ " + server + ":" + serverPort + " [" + ctrlInStr.available() + "]");
     return controlCommand(true, "L", RESULT_UNTIL_OK);
   }
   
@@ -227,6 +233,7 @@ public abstract class UARTSocket {
     AppSystem.closeSilently(ctrlInStr);
     AppSystem.closeSilently(ctrlOut);
     if (sCtrl != null) sCtrl.close();
+    dataClientConnected = false;
     if (sData != null) sData.close();
   }
   
@@ -237,7 +244,9 @@ public abstract class UARTSocket {
   
   protected static void startServer(UARTSocket uartSocket) {
     final int serverPort = uartSocket.serverPort;
+    Log.println("uartsocket:" + uartSocket.serialport + "@" + uartSocket.server + ":" + uartSocket.serverPort);
     if (!shutdownHookAdded) {
+      Log.println("adding shutdowhook for " + uartSocket.serverPort);
       Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
         public void run() {
           killServer(serverPort);
@@ -250,13 +259,15 @@ public abstract class UARTSocket {
           uartSocket.getVersionFile(), 
           uartSocket.getVersion());
       if (serverProcess == null || !validateRunningProcess(serverProcess)) {
-        //Log.println("trying port " + serverPort);
         String cmd = uartSocket.getExecCommand(serverPort);
-        Log.println(cmd);
+        Log.println("starting server at " + serverPort + " (" + cmd + ")");
         uartSocket.preExec();
         serverProcess = Runtime.getRuntime().exec(cmd);
         uartSocket.postExec();
         validateRunningProcess(serverProcess);
+        Log.println("server start validated " + serverPort + " (" + cmd + ")");
+      } else {
+        Log.println("server already started");
       }
     } catch (IOException ignore) {
     } catch (InterruptedException ignore) {
@@ -282,11 +293,15 @@ public abstract class UARTSocket {
     }
   }
   static void killServer(int serverPort) {
+    killServer("localhost", serverPort);
+  }
+  static void killServer(String server, int serverPort) {
+    Log.println("server kill @ " + server + ":" + serverPort);
     Socket sCtrl = null;
     try {
       try {
         //Log.println("issuing server close");
-        sCtrl = new Socket("localhost", serverPort);
+        sCtrl = new Socket(server, serverPort);
         OutputStream out = sCtrl.getOutputStream();
         out.write("X\n".getBytes());
         out.flush();

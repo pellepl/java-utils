@@ -62,6 +62,9 @@ public abstract class PortConnector {
           + System.getProperty(UARTSocket.PROP_PATH_APPNAME, UARTSocket.PATH_DEFAULT_APPNAME)
           + File.separatorChar + "py" + File.separatorChar + "pyuartsocket.py");
     }
+    if (System.getProperty(PySerialPortUARTSocket.PROP_PATH_PYTHON3) == null) {
+      System.setProperty(PySerialPortUARTSocket.PROP_PATH_PYTHON3, "python3");
+    }
     if (os.contains("Windows")) {
       if (System.getProperty(WinSerialPortUARTSocket.PROP_PATH_BIN) == null) {
         System.setProperty(WinSerialPortUARTSocket.PROP_PATH_BIN, System
@@ -168,6 +171,7 @@ public abstract class PortConnector {
   }
 
   public void configure(Port portSetting) throws IOException {
+    Log.println("configuring " + portSetting.portName);
     doConfigure(portSetting);
   }
 

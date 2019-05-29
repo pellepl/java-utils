@@ -28,7 +28,8 @@ import com.pelleplutt.util.*;
  * @author petera
  */
 public class PySerialPortUARTSocket extends UARTSocket {
-	public static final String PROP_PATH_BIN = "portconnector.python.bin";
+  public static final String PROP_PATH_BIN = "portconnector.python.bin";
+  public static final String PROP_PATH_PYTHON3 = "portconnector.python.python3";
 	
 	public static final int VERSION = 0x00010000;
 	
@@ -71,11 +72,24 @@ public class PySerialPortUARTSocket extends UARTSocket {
 		if (update) {
 			File dst = new File(System.getProperty(PROP_PATH_BIN));
 			AppSystem.copyAppResource("native/cross/pyuartsocket.py", dst);
-			Set<PosixFilePermission> attrs = PosixFilePermissions.fromString("rwxr-xr--");
-			Files.setPosixFilePermissions(dst.toPath(), attrs);
+      if (System.getProperty("os.name").contains("Linux")) {
+        Set<PosixFilePermission> attrs = PosixFilePermissions.fromString("rwxr-xr--");
+        Files.setPosixFilePermissions(dst.toPath(), attrs);
+      }
 			AppSystem.writeFile(verFile, Integer.toString(ver));
 		}
 	}
+	
+	@Override
+  protected String getExecCommand(int serverPort) {
+	  String pythonBin = System.getProperty(PROP_PATH_PYTHON3);
+	  if (pythonBin == null) {
+	    pythonBin = "";
+	  } else {
+	    pythonBin += " ";
+	  }
+    return pythonBin + getBinFile().getAbsolutePath() + " " + serverPort;
+  }
 
   File getBinFile() {
     File binFile = new File(System.getProperty(PROP_PATH_BIN));

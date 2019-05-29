@@ -15,55 +15,66 @@
 */
 package com.pelleplutt.util.io;
 
-import java.io.*;
+import java.io.IOException;
+
+import com.pelleplutt.util.Log;
 
 public class PyPortConnector extends PortConnector {
-	PySerialPortUARTSocket port;
+	volatile PySerialPortUARTSocket uartSocketServer;
 
   public String[] getDevices() {
     try {
-      if (port == null) {
-        System.out.println("new port");
-        port = (PySerialPortUARTSocket)PySerialPortUARTSocket.getPort(null, new PySerialPortUARTSocket());
+      if (uartSocketServer == null) {
+        uartSocketServer = (PySerialPortUARTSocket)PySerialPortUARTSocket.createServer(
+            "devlister", false, new PySerialPortUARTSocket());
+        Log.println("new server " + uartSocketServer);
       }
-      return port.getDevices();
+      return uartSocketServer.getDevices();
     } catch (Throwable t) {
-      System.out.println("nulling port");
+      Log.println("nulling server");
       t.printStackTrace();
-      port = null;
+      uartSocketServer = null;
       return null;
     }
   }
 
 
 	public void doConnect(Port portSetting) throws Exception {
-		UARTSocket pyUartSocket = new PySerialPortUARTSocket();
-		port = (PySerialPortUARTSocket)PySerialPortUARTSocket.getPort(portSetting.portName, pyUartSocket);
+    if (uartSocketServer == null) {
+      UARTSocket pyUartSocket = new PySerialPortUARTSocket();
+      uartSocketServer = (PySerialPortUARTSocket)PySerialPortUARTSocket.createServer(
+		    portSetting.portName, true, pyUartSocket);
+      Log.println("new server " + uartSocketServer);
+    }
 		configure(portSetting);
-		setInputStream(port.openInputStream());
-		setOutputStream(port.openOutputStream());
+		setInputStream(uartSocketServer.openInputStream());
+		setOutputStream(uartSocketServer.openOutputStream());
 	}
 
 	public void doDisconnect() throws IOException {
-		if (port != null) {
-			port.close();
+		if (uartSocketServer != null) {
+      Log.println("closing " + uartSocketServer);
+			uartSocketServer.close();
+			UARTSocket.killServer(this.uartSocketServer.server, this.uartSocketServer.serverPort);
+			uartSocketServer = null;
 		}
 	}
 
 	@Override
 	protected void doSetTimeout(long timeout) throws IOException {
-		if (port != null) {
-			port.configureTimeout(timeout != 0 ? (timeout + 100) : 0);
+		if (uartSocketServer != null) {
+			uartSocketServer.configureTimeout(timeout != 0 ? (timeout + 100) : 0);
 		}
 	}
 
 	@Override
 	public void setRTSDTR(boolean rtshigh, boolean dtrhigh) throws IOException {
-		port.setRTSDTR(rtshigh, dtrhigh);
+		uartSocketServer.setRTSDTR(rtshigh, dtrhigh);
 	}
 
 	@Override
 	protected void doConfigure(Port portSetting) throws IOException {
+	  uartSocketServer.serialport = portSetting.portName;
 		int baud = portSetting.baud;
 		int databits = portSetting.databits;
 		int stopbits = 0;
@@ -93,7 +104,7 @@ public class PyPortConnector extends PortConnector {
 			parity = UARTSocket.PARITY_NONE;
 			break;
 		}
-		port.configure(baud, databits, parity, stopbits, false, false, false,
+		uartSocketServer.configure(baud, databits, parity, stopbits, false, false, false,
 				timeout != 0 ? (timeout + 1000) : 0);
 	}
 }
