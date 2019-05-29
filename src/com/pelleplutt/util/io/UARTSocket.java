@@ -246,6 +246,9 @@ public abstract class UARTSocket {
     return isOpen;
   }
 
+  public void dispose() {
+    killServer(this.server, this.serverPort);
+  }
   
   protected static void startServer(UARTSocket uartSocket) {
     final int serverPort = uartSocket.serverPort;

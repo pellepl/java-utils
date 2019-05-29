@@ -64,6 +64,20 @@ public class PyPortConnector extends PortConnector {
 			uartSocketServer = null;
 		}
 	}
+	
+  @Override
+  public void dispose() {
+    if (uartSocketServer == null) {
+      try {
+        uartSocketServer = (PySerialPortUARTSocket)UARTSocket.createServer(
+          "disposer", false, new PySerialPortUARTSocket());
+        Log.println("new server instance " + uartSocketServer);
+      } catch (Throwable t) {}
+    } else {
+      Log.println("have server instance " + uartSocketServer);
+    }
+    uartSocketServer.dispose();
+  }
 
 	@Override
 	protected void doSetTimeout(long timeout) throws IOException {

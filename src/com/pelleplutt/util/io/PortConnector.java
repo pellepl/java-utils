@@ -214,6 +214,9 @@ public abstract class PortConnector {
   public PushbackInputStream getInputStream() {
     return inputStream;
   }
+  
+  public void dispose() {
+  }
 
   protected void setInputStream(InputStream inputStream) {
     this.inputStream = new PushbackInputStream(

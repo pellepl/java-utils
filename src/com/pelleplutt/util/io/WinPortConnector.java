@@ -134,7 +134,6 @@ public class WinPortConnector extends PortConnector {
 		port.configure(baud, databits, parity, stopbits, false, false, false,
 				timeout != 0 ? (timeout + 1000) : 0);
 	}
-
 	
 	public String[] getDevices() {
 		try {
