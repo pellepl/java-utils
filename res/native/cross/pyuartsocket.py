@@ -58,13 +58,12 @@ def lldbg(s):
 
 def drop_dead():
   """ kill server and clients """
-  global g_running
   dbg("server shutdown")
   g_running = False
   for client in g_ctrl_clients:
     dbg("finishing off client {:d}".format(client.id))
     try:
-      client.running = FalseTR
+      client.running = False
       client.socket.shutdown(socket.SHUT_RDWR)
     except:
       pass
@@ -73,22 +72,27 @@ def drop_dead():
 
 def finalize_client(client):
   """ kill client (data/ctrl) """
-  dbg("client {:d} exited".format(client.id))
+  dbg("client {:d} exited - cleanup".format(client.id))
   if client.ctrl:
+    dbg("  client {:d} is control".format(client.id))
     for data_client in client.data_clients:
       try:
+        dbg("    client {:d} is attached and stopped".format(data_client.id))
         g_data_clients.remove(data_client)
       except ValueError:
         pass
       data_client.running = False
+    dbg("  client {:d} is stopped".format(client.id))
     try:
       g_ctrl_clients.remove(client)
     except ValueError:
       pass
     if client.uart:
+      dbg("  serial {:s} is stopped".format(str(client.uart.serial)))
       client.uart.close()
     client.running = False
   else:    
+    dbg("  client {:d} is data".format(client.id))
     try:
       g_data_clients.remove(client)
     except ValueError:
@@ -98,7 +102,9 @@ def finalize_client(client):
         ctrl_client.data_clients.remove(client)
       except ValueError:
         pass
+    dbg("  client {:d} is stopped".format(client.id))
     client.running = False
+  dbg("client {:d} exit done".format(client.id))
 
 
 def serial_rx(uart):
@@ -508,26 +514,24 @@ class Client(threading.Thread):
 class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
   """ class: server request handler """
   def handle(self):
-    global g_running
-    self.client = Client(self)
-    g_ctrl_clients.append(self.client)
+    client = Client(self)
+    g_ctrl_clients.append(client)
     try:
       cmd = ""
       self.request.settimeout(1.0)
-      while g_running and self.client.running:
+      while g_running and client.running:
         try:
-          self.client.on_eth_data(self.request.recv(8))
+          client.on_eth_data(self.request.recv(8))
         except socket.timeout:
           continue
-        if not self.client.running:
+        if not client.running:
           break
     except socket.error as e:
       if e.errno != errno.EPIPE:
         raise
     finally:
-      finalize_client(self.client)
-    g_running = False
-
+      dbg("client {:d} request thread done".format(client.id))
+      finalize_client(client)
 
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
   """ class: server """
@@ -552,6 +556,7 @@ if __name__ == "__main__":
     server_thread.daemon = True
     server_thread.start()
     server_thread.join()
+  g_running = False
   server.shutdown()
   dbg("stopped server @ {:s}:{:d}".format(HOST, PORT))
 

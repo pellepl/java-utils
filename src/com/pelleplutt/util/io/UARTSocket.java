@@ -87,7 +87,8 @@ public abstract class UARTSocket {
       while (tries-- > 0 && !ok) {
         try {
           startServer(uartsocket);
-          uartsocket.setup(connectDataClient);
+          uartsocket.connectCtrlClient();
+          if (connectDataClient) uartsocket.connectDataClient();
           ok = true;
         } catch (ConnectException e) {
           // port probably busy, server not opened
@@ -113,25 +114,24 @@ public abstract class UARTSocket {
     return portname;
   }
   
-  void setup(boolean connectDataClient) throws UnknownHostException, IOException {
+  void connectCtrlClient() throws UnknownHostException, IOException {
     // open control channel socket
-    Log.println("setting up server @ " + server + ":" + serverPort + ", connectDataClient:" + connectDataClient);
+    Log.println("open ctrl client against server " + server + ":" + serverPort);
     sCtrl = new Socket(server, serverPort);
     ctrlInStr = sCtrl.getInputStream();
     ctrlIn = new BufferedReader(new InputStreamReader(ctrlInStr));
     ctrlOut = new DataOutputStream(sCtrl.getOutputStream());
-    if (connectDataClient) {
-      connectDataClient();
-    }
   }
   
   void connectDataClient() throws IOException {
     String[] res;
+    Log.println("open data client against server " + server + ":" + serverPort + ", " + serialport);
     // open device
     res = controlCommand(true, "O " + serialport, 0);
     // get control channel index
     res = controlCommand(true, "I", 1);
     int ctrlIndex = Integer.parseInt(res[0]);
+    Log.println("serial " + serialport + " is ctrl client index " + ctrlIndex);
     
     // open data channel socket
     sData = new Socket(server, serverPort);
@@ -225,6 +225,11 @@ public abstract class UARTSocket {
 
   public void close() throws IOException {
     isOpen = false;
+    try {
+      String[] res = controlCommand(true, "I", 1);
+      int ctrlIndex = Integer.parseInt(res[0]);
+      Log.println("closing ctrl client index " + ctrlIndex);
+    } catch (Throwable ignore) {}
     try {
       controlCommand(true, "C", 0);
     } catch (Throwable ignore) {}

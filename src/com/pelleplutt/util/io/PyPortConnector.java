@@ -25,9 +25,11 @@ public class PyPortConnector extends PortConnector {
   public String[] getDevices() {
     try {
       if (uartSocketServer == null) {
-        uartSocketServer = (PySerialPortUARTSocket)PySerialPortUARTSocket.createServer(
+        uartSocketServer = (PySerialPortUARTSocket)UARTSocket.createServer(
             "devlister", false, new PySerialPortUARTSocket());
-        Log.println("new server " + uartSocketServer);
+        Log.println("new server instance " + uartSocketServer);
+      } else {
+        Log.println("have server instance  " + uartSocketServer);
       }
       return uartSocketServer.getDevices();
     } catch (Throwable t) {
@@ -40,22 +42,25 @@ public class PyPortConnector extends PortConnector {
 
 
 	public void doConnect(Port portSetting) throws Exception {
+    Log.println("connect " + portSetting.portName);
     if (uartSocketServer == null) {
-      UARTSocket pyUartSocket = new PySerialPortUARTSocket();
-      uartSocketServer = (PySerialPortUARTSocket)PySerialPortUARTSocket.createServer(
-		    portSetting.portName, true, pyUartSocket);
-      Log.println("new server " + uartSocketServer);
+      uartSocketServer = (PySerialPortUARTSocket)UARTSocket.createServer(
+		    portSetting.portName, true, new PySerialPortUARTSocket());
+      Log.println("new server instance " + uartSocketServer);
+    } else {
+      Log.println("have server instance " + uartSocketServer);
     }
+   
 		configure(portSetting);
 		setInputStream(uartSocketServer.openInputStream());
 		setOutputStream(uartSocketServer.openOutputStream());
 	}
 
 	public void doDisconnect() throws IOException {
+    Log.println("disconnect");
 		if (uartSocketServer != null) {
-      Log.println("closing " + uartSocketServer);
+      Log.println("closing ctrl client, server instance " + uartSocketServer);
 			uartSocketServer.close();
-			UARTSocket.killServer(this.uartSocketServer.server, this.uartSocketServer.serverPort);
 			uartSocketServer = null;
 		}
 	}
