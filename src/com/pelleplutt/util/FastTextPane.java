@@ -97,11 +97,15 @@ public class FastTextPane extends JPanel {
   }
   
   public String getText() {
+    return getText(true);
+  }
+  
+  public String getText(boolean forHumans) {
     StringBuilder sb = new StringBuilder();
     synchronized (doc.lines) {
       for (Line line : doc.lines) {
         sb.append(line.string);
-        if (line.nl) sb.append(newLine);
+        if (line.nl) sb.append(forHumans ? newLine : "\n");
       }
     }
     
