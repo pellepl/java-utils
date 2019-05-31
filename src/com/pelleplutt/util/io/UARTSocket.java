@@ -47,6 +47,9 @@ public abstract class UARTSocket {
   public static final String PROP_PATH_APPNAME = "portconnector.path";
   public static final String PATH_DEFAULT_APPNAME = ".uartsocket";
   
+  public static int globalStarts = 0;
+  public static int globalKills = 0;
+  
   String serialport;
   volatile boolean isOpen = false;
   volatile boolean dataClientConnected = false;
@@ -61,6 +64,9 @@ public abstract class UARTSocket {
   
   String server = "localhost";
   int serverPort = serverPort_g;
+  
+  public int starts = 0;
+  public int kills = 0;
 
   
   public static UARTSocket createServer(String serialport, boolean connectDataClient, UARTSocket uartsocket) throws IOException {
@@ -163,7 +169,7 @@ public abstract class UARTSocket {
   }
   
   public String[] getDevices() throws IOException {
-    Log.println("getting devices @ " + server + ":" + serverPort + " [" + ctrlInStr.available() + "]");
+    Log.println("getting devices @ " + server + ":" + serverPort);
     return controlCommand(true, "L", RESULT_UNTIL_OK);
   }
   
@@ -247,6 +253,7 @@ public abstract class UARTSocket {
   }
 
   public void dispose() {
+    kills++;
     killServer(this.server, this.serverPort);
   }
   
@@ -274,6 +281,8 @@ public abstract class UARTSocket {
         uartSocket.postExec();
         validateRunningProcess(serverProcess);
         Log.println("server start validated " + serverPort + " (" + cmd + ")");
+        globalStarts++;
+        uartSocket.starts++;
       } else {
         Log.println("server already started");
       }
@@ -304,6 +313,7 @@ public abstract class UARTSocket {
     killServer("localhost", serverPort);
   }
   static void killServer(String server, int serverPort) {
+    globalKills++;
     Log.println("server kill @ " + server + ":" + serverPort);
     Socket sCtrl = null;
     try {

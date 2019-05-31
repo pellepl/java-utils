@@ -36,6 +36,7 @@ public class PySerialPortUARTSocket extends UARTSocket {
 	protected PySerialPortUARTSocket() {
 	}
 
+	@Override
 	String preprocessPortName(String portname) {
 		if (!portname.startsWith("/dev/") && portname.startsWith("tty")) {
 			portname = "/dev/" + portname;
@@ -43,6 +44,13 @@ public class PySerialPortUARTSocket extends UARTSocket {
 		return portname;
 	}
 
+  @Override
+  public String[] getDevices() throws IOException {
+    Log.println("getting devices @ " + server + ":" + serverPort);
+    return controlCommand(true, "L -", RESULT_UNTIL_OK);
+  }
+
+  @Override
 	public void configureTimeout(long timeout)
 			throws IOException {
 		sData.setSoTimeout((int)timeout + ((timeout > 0) ? 100 : 0));
@@ -50,6 +58,7 @@ public class PySerialPortUARTSocket extends UARTSocket {
 			+ " M" + (timeout == 0 ? '1' : '0'), 0);
 	}
 
+  @Override
 	void checkBinary(File exe, File verFile, int ver) throws IOException, InterruptedException {
 	   boolean update = false;
 	    // check exe
@@ -91,6 +100,7 @@ public class PySerialPortUARTSocket extends UARTSocket {
     return pythonBin + getBinFile().getAbsolutePath() + " " + serverPort;
   }
 
+  @Override
   File getBinFile() {
     File binFile = new File(System.getProperty(PROP_PATH_BIN));
     return binFile;

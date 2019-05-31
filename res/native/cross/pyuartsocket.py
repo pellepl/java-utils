@@ -38,7 +38,12 @@ CMD_CONFIG_SERIAL_PARITY = "P"
 CMD_CONFIG_SERIAL_BYTESIZE = "D"
 CMD_CONFIG_SERIAL_STOPBITS = "S"
 CMD_CONFIG_SERIAL_TIMEOUT = "T"
+CMD_CONFIG_SERIAL_RTIMEOUT = "R"
+CMD_CONFIG_SERIAL_WTIMEOUT = "W"
 CMD_CONFIG_SERIAL_ITIMEOUT = "M"
+CMD_CONFIG_SERIAL_XONXOFF = "X"
+CMD_CONFIG_SERIAL_RTSCTS = "Y"
+CMD_CONFIG_SERIAL_DSRDTR = "Z"
 CMD_CONFIG_SERIAL_SET_RTS = "r"
 CMD_CONFIG_SERIAL_SET_DTR = "d"
 CMD_CONFIG_SERIAL_GET_CTS = "c"
@@ -91,7 +96,7 @@ def finalize_client(client):
       dbg("  serial {:s} is stopped".format(str(client.uart.serial)))
       client.uart.close()
     client.running = False
-  else:    
+  else:
     dbg("  client {:d} is data".format(client.id))
     try:
       g_data_clients.remove(client)
@@ -149,15 +154,14 @@ class Uart:
     self.ctrl_client = ctrl_client
     self.serial = serial.Serial()
 
-  
   def run(self):
     """ starts rx/tx threads """
     rx = threading.Thread(target=serial_rx, args = [self])
     rx.daemon = True
-    rx.start()    
+    rx.start()
     tx = threading.Thread(target=serial_tx, args = [self])
     tx.daemon = True
-    tx.start()    
+    tx.start()
 
   def open(self):
     """ opens this serial port with settings from associated ctrl client """
@@ -170,6 +174,8 @@ class Uart:
     self.serial.bytesize = self.ctrl_client.ser_bytesize
     self.serial.stopbits = self.ctrl_client.ser_stopbits
     self.serial.xonxoff = self.ctrl_client.ser_xonxoff
+    self.serial.dsrdtr = self.ctrl_client.ser_dsrdtr
+    self.serial.rtscts = self.ctrl_client.ser_rtscts
     self.serial.rts = self.ctrl_client.ser_rts
     self.serial.dtr = self.ctrl_client.ser_dtr
     dbg("opening serial {:s} at client {:d}".format(str(self.serial), self.ctrl_client.id))
@@ -197,6 +203,8 @@ class Uart:
     ("baudrate", self.ctrl_client.ser_baudrate),
     ("bytesize", self.ctrl_client.ser_bytesize),
     ("stopbits", self.ctrl_client.ser_stopbits),
+    ("dsrdtr", self.ctrl_client.ser_dsrdtr),
+    ("rtscts", self.ctrl_client.ser_rtscts),
     ("xonxoff", self.ctrl_client.ser_xonxoff),
     ("rts", self.ctrl_client.ser_rts),
     ("dtr", self.ctrl_client.ser_dtr)
@@ -225,7 +233,9 @@ class Client(threading.Thread):
     self.ser_parity = serial.PARITY_NONE
     self.ser_bytesize = 8
     self.ser_stopbits = 1
-    self.ser_xonxoff = 0
+    self.ser_xonxoff = False
+    self.ser_rtscts = False
+    self.ser_dsrdtr = False
     self.ser_rts = None
     self.ser_dtr = None
     self.zeroes = 0
@@ -241,7 +251,7 @@ class Client(threading.Thread):
         self.socket.sendall(ser_data)
       except queue.Empty:
         pass
-  
+
   def echo(self, text):
     """ echo message to peer """
     self.socket.sendall(bytes(text, 'ascii'))
@@ -275,7 +285,7 @@ class Client(threading.Thread):
           self.error("unknown:{}".format(sys.exc_info()[0]))
           traceback.print_exc()
         self.cmd = ""
-          
+
     else:
       if self.ctrl_client.uart != None:
         lldbg("  eth{:s}<-{:s}".format(self.ctrl_client.uart.name, str(data)))
@@ -295,7 +305,12 @@ class Client(threading.Thread):
     self.echo("  " + CMD_CONFIG_SERIAL_BYTESIZE + "<byte>  sets serial bytesize\n")
     self.echo("  " + CMD_CONFIG_SERIAL_STOPBITS + "<stop>  sets serial stopbits\n")
     self.echo("  " + CMD_CONFIG_SERIAL_TIMEOUT  + "<tmo>   sets serial read and write timeout in milliseconds\n")
+    self.echo("  " + CMD_CONFIG_SERIAL_RTIMEOUT + "<tmo>   sets serial read timeout in milliseconds\n")
+    self.echo("  " + CMD_CONFIG_SERIAL_WTIMEOUT + "<tmo>   sets serial write timeout in milliseconds\n")
     self.echo("  " + CMD_CONFIG_SERIAL_ITIMEOUT + "<tmo>   sets serial intracharacter timeout in milliseconds\n")
+    self.echo("  " + CMD_CONFIG_SERIAL_RTSCTS   + "<ena>   enable or disable rts/cts hw flow control\n")
+    self.echo("  " + CMD_CONFIG_SERIAL_DSRDTR   + "<ena>   enable or disable dsr/dtr hw flow control\n")
+    self.echo("  " + CMD_CONFIG_SERIAL_XONXOFF  + "<ena>   enable or disable xon/xoff sw flow control\n")
     self.echo("  " + CMD_CONFIG_SERIAL_SET_RTS  + "<rts>   sets serial rts line hi/lo\n")
     self.echo("  " + CMD_CONFIG_SERIAL_SET_DTR  + "<dtr>   sets serial dtr line hi/lo\n")
     self.echo("  " + CMD_CONFIG_SERIAL_GET_CTS  + "        returns serial cts line state\n")
@@ -304,7 +319,7 @@ class Client(threading.Thread):
     self.echo("  " + CMD_CONFIG_SERIAL_GET_CD   + "        returns serial cd line state\n")
 
   def on_command(self, cmd_str):
-    """ handle ctrl command from peer """ 
+    """ handle ctrl command from peer """
     cmds = cmd_str.split(' ')
     cmd = cmds[0].strip()
     if len(cmds) == 2:
@@ -313,19 +328,19 @@ class Client(threading.Thread):
       arg = cmds[1:]
     else:
       arg = None
-      
+
     if cmd == CMD_SERVER_SHUTDOWN:
       self.ok()
       drop_dead()
-  
+
     elif cmd == CMD_CLIENT_SHUTDOWN:
       self.running = False
       self.ok()
-  
+
     elif cmd == CMD_IDENTIFY:
       self.echo("{}\n".format(self.id))
       self.ok()
-  
+
     elif cmd == CMD_ATTACH:
       other_id = int(arg)
       if other_id == self.id:
@@ -344,7 +359,7 @@ class Client(threading.Thread):
             self.ok()
             return
         self.error("no such channel")
-  
+
     elif cmd == CMD_LIST_SERIALS:
       ports = serial.tools.list_ports.comports()
       for p in ports:
@@ -353,7 +368,7 @@ class Client(threading.Thread):
         else:
           self.echo(str(p[0]) + "\n")
       self.ok()
-      
+
     elif cmd == CMD_OPEN_SERIAL:
       if self.uart:
         self.uart.close()
@@ -361,23 +376,23 @@ class Client(threading.Thread):
       self.uart.open()
       g_uarts.append(self.uart)
       self.ok()
-  
+
     elif cmd == CMD_CONFIG_SERIAL:
       self.config_serial(cmds[1:])
-      
+
     elif cmd == CMD_HELP:
       self.help()
       self.ok()
-  
-  
+
+
     elif cmd == "-":
       if self.uart:
         print("{:s}".format(str(self.uart.serial.get_settings())))
       self.ok()
-      
+
     else:
         self.error("unknown command")
-        
+
   def config_serial(self, args):
     """ sets serial config """
     ok = 1
@@ -385,11 +400,11 @@ class Client(threading.Thread):
     for cmdl in args:
       cmd = cmdl[0]
       arg = cmdl[1:].strip()
-      
+
       if cmd == CMD_CONFIG_SERIAL_BAUDRATE:
         self.ser_baudrate = int(arg)
         conf |= 1
-  
+
       elif cmd == CMD_CONFIG_SERIAL_PARITY:
         if arg == 'n':
           self.ser_parity = serial.PARITY_NONE
@@ -406,7 +421,7 @@ class Client(threading.Thread):
           ok = 0
         if ok == 1:
           conf |= 1
-    
+
       elif cmd == CMD_CONFIG_SERIAL_BYTESIZE:
         if arg == '8':
           self.ser_bytesize = serial.EIGHTBITS
@@ -421,15 +436,25 @@ class Client(threading.Thread):
           ok = 0
         if ok == 1:
           conf |= 1
-    
+
       elif cmd == CMD_CONFIG_SERIAL_TIMEOUT:
         tmo = int(arg)
-        self.ser_rtimeout = self.ser_wtimeout = tmo/1000.0 
+        self.ser_rtimeout = self.ser_wtimeout = tmo/1000.0
+        conf |= 1
+
+      elif cmd == CMD_CONFIG_SERIAL_RTIMEOUT:
+        tmo = int(arg)
+        self.ser_rtimeout = tmo/1000.0
+        conf |= 1
+
+      elif cmd == CMD_CONFIG_SERIAL_WTIMEOUT:
+        tmo = int(arg)
+        self.ser_wtimeout = tmo/1000.0
         conf |= 1
 
       elif cmd == CMD_CONFIG_SERIAL_ITIMEOUT:
         tmo = int(arg)
-        self.ser_itimeout = tmo/1000.0 
+        self.ser_itimeout = tmo/1000.0
         conf |= 1
 
       elif cmd == CMD_CONFIG_SERIAL_STOPBITS:
@@ -444,7 +469,34 @@ class Client(threading.Thread):
           ok = 0
         if ok == 1:
           conf |= 1
-          
+
+      elif cmd == CMD_CONFIG_SERIAL_RTSCTS:
+        if arg == "0":
+          self.ser_rtscts = False
+        elif arg == "1":
+          self.ser_rtscts = True
+        else:
+          self.error("unknown setting (0,1)")
+          ok = 0
+
+      elif cmd == CMD_CONFIG_SERIAL_DSRDTR:
+        if arg == "0":
+          self.ser_dsrdtr = False
+        elif arg == "1":
+          self.ser_dsrdtr = True
+        else:
+          self.error("unknown setting (0,1)")
+          ok = 0
+
+      elif cmd == CMD_CONFIG_SERIAL_XONXOFF:
+        if arg == "0":
+          self.ser_xonxoff = False
+        elif arg == "1":
+          self.ser_xonxoff = True
+        else:
+          self.error("unknown setting (0,1)")
+          ok = 0
+
       elif cmd == CMD_CONFIG_SERIAL_SET_RTS:
         if arg == "0":
           self.ser_rts = False
@@ -459,7 +511,7 @@ class Client(threading.Thread):
         else:
           self.error("unknown line state (0,1,-)")
           ok = 0
-          
+
       elif cmd == CMD_CONFIG_SERIAL_SET_DTR:
         if arg == "0":
           self.ser_dtr = False
@@ -480,29 +532,29 @@ class Client(threading.Thread):
           self.echo(str(1 if self.uart.serial.cd else 0) + "\n")
         else:
           self.echo("-\n")
-          
+
       elif cmd == CMD_CONFIG_SERIAL_GET_CTS:
         if self.uart != None:
           self.echo(str(1 if self.uart.serial.cts else 0) + "\n")
         else:
           self.echo("-\n")
-          
+
       elif cmd == CMD_CONFIG_SERIAL_GET_DSR:
         if self.uart != None:
           self.echo(str(1 if self.uart.serial.dsr else 0) + "\n")
         else:
           self.echo("-\n")
-          
+
       elif cmd == CMD_CONFIG_SERIAL_GET_RI:
         if self.uart != None:
           self.echo(str(1 if self.uart.serial.ri else 0) + "\n")
         else:
           self.echo("-\n")
-          
+
       else:
         self.error("unknown argument")
         ok = 0
-        
+
       if ok == 0:
         break
 

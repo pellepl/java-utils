@@ -67,6 +67,7 @@ public class PyPortConnector extends PortConnector {
 	
   @Override
   public void dispose() {
+    if (UARTSocket.globalStarts == 0) return;
     if (uartSocketServer == null) {
       try {
         uartSocketServer = (PySerialPortUARTSocket)UARTSocket.createServer(
