@@ -127,6 +127,18 @@ public abstract class PortConnector {
    */
   public abstract void setRTSDTR(boolean rtshigh, boolean dtrhigh)
       throws IOException;
+  public abstract void setRTS(boolean hi)
+      throws IOException;
+  public abstract void setDTR(boolean hi)
+      throws IOException;
+  public abstract int getCTS()
+      throws IOException;
+  public abstract int getDSR()
+      throws IOException;
+  public abstract int getRI()
+      throws IOException;
+  public abstract int getCD()
+      throws IOException;
 
   /**
    * Sets timeout for streams given by this connection

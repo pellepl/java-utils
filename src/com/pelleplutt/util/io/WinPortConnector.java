@@ -147,4 +147,33 @@ public class WinPortConnector extends PortConnector {
 			return null;
 		}
 	}
+  @Override
+  public void setRTS(boolean hi) throws IOException {
+    port.setRTS(hi);
+  }
+
+  @Override
+  public void setDTR(boolean hi) throws IOException {
+    port.setDTR(hi);
+  }
+
+  @Override
+  public int getCTS() throws IOException {
+    return -1;
+  }
+
+  @Override
+  public int getDSR() throws IOException {
+    return -1;
+  }
+
+  @Override
+  public int getRI() throws IOException {
+    return -1;
+  }
+
+  @Override
+  public int getCD() throws IOException {
+    return -1;
+  }
 }

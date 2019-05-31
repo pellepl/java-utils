@@ -186,6 +186,30 @@ public abstract class UARTSocket {
         + " d" + (dtrhigh ? '1' : '0'), 0);
   }
 
+  public void setRTS(boolean hi) throws IOException {
+    controlCommand(true, "U r" + (hi ? '1' : '0'), 0);
+  }
+  public void setDTR(boolean hi) throws IOException {
+    controlCommand(true, "U d" + (hi ? '1' : '0'), 0);
+  }
+  private int parseLineState(String s) {
+    if (s.equals("0")) return 0;
+    else if (s.equals("1")) return 1;
+    else return -1;
+  }
+  public int getCTS() throws IOException {
+    return parseLineState(controlCommand(true, "U c", 1)[0]);
+  }
+  public int getDSR() throws IOException {
+    return parseLineState(controlCommand(true, "U s", 1)[0]);
+  }
+  public int getRI() throws IOException {
+    return parseLineState(controlCommand(true, "U i", 1)[0]);
+  }
+  public int getCD() throws IOException {
+    return parseLineState(controlCommand(true, "U e", 1)[0]);
+  }
+
   String[] controlCommand(boolean ctrl, String s, int result) throws IOException {
     DataOutputStream out = ctrl ? ctrlOut : dataCOut;
     out.writeBytes(s);

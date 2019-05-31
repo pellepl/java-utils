@@ -87,10 +87,34 @@ public class PyPortConnector extends PortConnector {
 		}
 	}
 
-	@Override
-	public void setRTSDTR(boolean rtshigh, boolean dtrhigh) throws IOException {
-		uartSocketServer.setRTSDTR(rtshigh, dtrhigh);
-	}
+  @Override
+  public void setRTSDTR(boolean rtshigh, boolean dtrhigh) throws IOException {
+    uartSocketServer.setRTSDTR(rtshigh, dtrhigh);
+  }
+  @Override
+  public void setRTS(boolean hi) throws IOException {
+    uartSocketServer.setRTS(hi);
+  }
+  @Override
+  public void setDTR(boolean hi) throws IOException {
+    uartSocketServer.setDTR(hi);
+  }
+  @Override 
+  public int getCTS() throws IOException {
+    return uartSocketServer.getCTS();
+  }
+  @Override 
+  public int getDSR() throws IOException {
+    return uartSocketServer.getDSR();
+  }
+  @Override 
+  public int getRI() throws IOException {
+    return uartSocketServer.getRI();
+  }
+  @Override 
+  public int getCD() throws IOException {
+    return uartSocketServer.getCD();
+  }
 
 	@Override
 	protected void doConfigure(Port portSetting) throws IOException {

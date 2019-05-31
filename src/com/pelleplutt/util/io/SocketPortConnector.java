@@ -56,7 +56,28 @@ public class SocketPortConnector extends PortConnector {
 	@Override
 	public void setRTSDTR(boolean rtshigh, boolean dtrhigh) throws IOException {
 	}
-
+  @Override
+  public void setRTS(boolean hi) throws IOException {
+  }
+  @Override
+  public void setDTR(boolean hi) throws IOException {
+  }
+  @Override
+  public int getCTS() throws IOException {
+    return -1;
+  }
+  @Override
+  public int getDSR() throws IOException {
+    return -1;
+  }
+  @Override
+  public int getRI() throws IOException {
+    return -1;
+  }
+  @Override
+  public int getCD() throws IOException {
+    return -1;
+  }
 	@Override
 	protected void doConfigure(Port portSetting) throws IOException {
 	}
