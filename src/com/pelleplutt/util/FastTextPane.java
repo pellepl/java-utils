@@ -125,7 +125,7 @@ public class FastTextPane extends JPanel {
       }
       return sb.toString();
     } else {
-      return getText().substring(selectedStartOffset, Math.min(doc.len, selectedEndOffset));
+      return getText(false).substring(selectedStartOffset, Math.min(doc.len, selectedEndOffset));
     }
   }
   
