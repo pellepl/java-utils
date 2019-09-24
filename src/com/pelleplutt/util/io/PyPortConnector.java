@@ -148,7 +148,7 @@ public class PyPortConnector extends PortConnector {
 			parity = UARTSocket.PARITY_NONE;
 			break;
 		}
-		uartSocketServer.configure(baud, databits, parity, stopbits, false, false, false,
+		uartSocketServer.configure(baud, databits, parity, stopbits, portSetting.xonxoff, portSetting.rtscts, portSetting.dsrdtr,
 				timeout != 0 ? (timeout + 1000) : 0);
 	}
 }

@@ -36,7 +36,20 @@ public class PySerialPortUARTSocket extends UARTSocket {
 	protected PySerialPortUARTSocket() {
 	}
 
-	@Override
+  @Override
+  public boolean supportsXONXOFF() {
+    return true;
+  }
+  @Override
+  public boolean supportsRTSCTS() {
+    return true;
+  }
+  @Override
+  public boolean supportsDSRDTR() {
+    return true;
+  }
+
+  @Override
 	String preprocessPortName(String portname) {
 		if (!portname.startsWith("/dev/") && portname.startsWith("tty")) {
 			portname = "/dev/" + portname;

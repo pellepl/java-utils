@@ -57,6 +57,9 @@ public class Port implements Comparable<Port> {
 	public int parity;
 	public int stopbits;
 	public int databits;
+	public boolean xonxoff;
+	public boolean rtscts;
+	public boolean dsrdtr;
 
 	public Port() {
 		portName = "undef";

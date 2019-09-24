@@ -153,7 +153,7 @@ public abstract class UARTSocket {
   }
 
   public void configure(int baud, int databits, int parity, int stopbits,
-      boolean hardwareHandshake, boolean xonxoff, boolean modemControl, long timeout)
+      boolean rtscts, boolean xonxoff, boolean dsrdtr, long timeout)
       throws IOException {
     if (!dataClientConnected) connectDataClient();
     sData.setSoTimeout((int)timeout + ((timeout > 0) ? 100 : 0));
@@ -165,6 +165,9 @@ public abstract class UARTSocket {
       + " P" + (parity == PARITY_NONE ? 'n' : (parity == PARITY_EVEN ? 'e' : 'o'))
       + " T" + timeout
       + " M" + (timeout == 0 ? '1' : '0');
+    if (supportsXONXOFF()) command += " X" + (xonxoff ? '1' : '0');
+    if (supportsRTSCTS()) command += " Y" + (rtscts ? '1' : '0');
+    if (supportsDSRDTR()) command += " Z" + (dsrdtr ? '1' : '0');
     controlCommand(true, command, 0);
   }
   
@@ -373,6 +376,15 @@ public abstract class UARTSocket {
     }
   }
   
+  public boolean supportsXONXOFF() {
+    return false;
+  }
+  public boolean supportsRTSCTS() {
+    return false;
+  }
+  public boolean supportsDSRDTR() {
+    return false;
+  }
   abstract void checkBinary(File exe, File verFile, int ver) throws IOException, InterruptedException;
 
   abstract File getBinFile();

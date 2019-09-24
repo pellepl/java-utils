@@ -131,7 +131,7 @@ public class WinPortConnector extends PortConnector {
 			parity = LinuxSerialPortUARTSocket.PARITY_NONE;
 			break;
 		}
-		port.configure(baud, databits, parity, stopbits, false, false, false,
+		port.configure(baud, databits, parity, stopbits, portSetting.xonxoff, portSetting.rtscts, portSetting.dsrdtr,
 				timeout != 0 ? (timeout + 1000) : 0);
 	}
 	
