@@ -104,6 +104,17 @@ public class AppSystem {
     return out.toByteArray();
   }
 
+  public static InputStream getAppResourceAsStream(String path) throws IOException {
+    InputStream is = null;
+    try {
+      is = Thread.currentThread().getContextClassLoader()
+          .getResourceAsStream(path);
+    } finally {
+      closeSilently(is);
+    }
+    return is;
+  }
+
   /**
    * Reads contents of file and returns as string. If anything goes wrong null
    * is returned.
