@@ -39,7 +39,8 @@ public class LinuxPortConnector extends PortConnector {
 
 	public void doConnect(Port portSetting) throws Exception {
 		UARTSocket linuxUartSocket = new LinuxSerialPortUARTSocket();
-		port = (LinuxSerialPortUARTSocket)LinuxSerialPortUARTSocket.getPort(portSetting.portName, linuxUartSocket);
+		port = (LinuxSerialPortUARTSocket)LinuxSerialPortUARTSocket.createServer(
+		    portSetting.portName, true, linuxUartSocket);
 		configure(portSetting);
 		setInputStream(port.openInputStream());
 		setOutputStream(port.openOutputStream());
@@ -147,7 +148,37 @@ public class LinuxPortConnector extends PortConnector {
 			parity = LinuxSerialPortUARTSocket.PARITY_NONE;
 			break;
 		}
-		port.configure(baud, databits, parity, stopbits, false, false, false,
+		port.configure(baud, databits, parity, stopbits, portSetting.xonxoff, portSetting.rtscts, portSetting.dsrdtr,
 				timeout != 0 ? (timeout + 1000) : 0);
 	}
+
+  @Override
+  public void setRTS(boolean hi) throws IOException {
+    port.setRTS(hi);
+  }
+
+  @Override
+  public void setDTR(boolean hi) throws IOException {
+    port.setDTR(hi);
+  }
+
+  @Override
+  public int getCTS() throws IOException {
+    return -1;
+  }
+
+  @Override
+  public int getDSR() throws IOException {
+    return -1;
+  }
+
+  @Override
+  public int getRI() throws IOException {
+    return -1;
+  }
+
+  @Override
+  public int getCD() throws IOException {
+    return -1;
+  }
 }

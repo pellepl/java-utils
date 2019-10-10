@@ -15,9 +15,15 @@
 */
 package com.pelleplutt.util;
 
+import java.awt.AlphaComposite;
+import java.awt.Color;
 import java.awt.Component;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.Window;
 import java.awt.event.ActionListener;
 import java.awt.event.MouseEvent;
+import java.awt.image.BufferedImage;
 import java.io.File;
 import java.util.regex.Pattern;
 
@@ -49,9 +55,10 @@ public class UIUtil {
     }
   }
 
-  public static boolean showQueryYesNo(Component owner, String header, String text) {
-    return JOptionPane.YES_OPTION == JOptionPane.showConfirmDialog(
-        owner, text, header, JOptionPane.YES_NO_OPTION);
+  public static boolean showQueryYesNo(Component owner, String header,
+      String text) {
+    return JOptionPane.YES_OPTION == JOptionPane.showConfirmDialog(owner, text,
+        header, JOptionPane.YES_NO_OPTION);
   }
 
   public static void showPopup(Component owner, String header, String text) {
@@ -82,30 +89,31 @@ public class UIUtil {
     showError(owner, header, (e.getClass().getName() + ": ") + e.getMessage());
   }
 
-  public static File selectFile(Component owner, String title, String buttonText) {
+  public static File selectFile(Component owner, String title,
+      String buttonText) {
     return selectFile(owner, title, buttonText, null, null, false, false);
   }
 
-  public static File selectFile(Component owner, String title, String buttonText,
-      String fileSuffix, String filterDesc) {
+  public static File selectFile(Component owner, String title,
+      String buttonText, String fileSuffix, String filterDesc) {
     String[] fs = { fileSuffix };
     return selectFile(owner, title, buttonText, fs, filterDesc, false, false);
   }
 
-  public static File selectFile(Component owner, String title, String buttonText,
-      String[] fileSuffix, String filterDesc) {
+  public static File selectFile(Component owner, String title,
+      String buttonText, String[] fileSuffix, String filterDesc) {
     return selectFile(owner, title, buttonText, fileSuffix, filterDesc, false,
         false);
   }
 
-  public static File selectFile(Component owner, String title, String buttonText,
-      boolean filesOnly, boolean directoriesOnly) {
+  public static File selectFile(Component owner, String title,
+      String buttonText, boolean filesOnly, boolean directoriesOnly) {
     return selectFile(owner, title, buttonText, null, null, filesOnly,
         directoriesOnly);
   }
 
-  public static File selectFile(Component owner, String title, String buttonText,
-      final String[] filterSuffix, final String filterDescr,
+  public static File selectFile(Component owner, String title,
+      String buttonText, final String[] filterSuffix, final String filterDescr,
       final boolean filesOnly, final boolean directoriesOnly) {
     String defaultPath = System.getProperty(PROP_DEFUALT_PATH);
     if (defaultPath == null) {
@@ -154,43 +162,78 @@ public class UIUtil {
       return null;
     }
   }
-  
-  public static void showPopupMenu(MouseEvent e, String items[], ActionListener al) {    showPopupMenu(e.getComponent(), e.getX(), e.getY(), items, al);
+
+  public static void showPopupMenu(MouseEvent e, String items[],
+      ActionListener al) {
+    showPopupMenu(e.getComponent(), e.getX(), e.getY(), items, al);
   }
-  
+
   /**
-   * Will create a popupmenu with items as menu items.
-   * If cancelled, given actionlistener will be called with null as argument.
-   * Else, actionlistener will be called with an actionevent whose cmd is the 
-   * selected string.
-   * @param owner   parent window
-   * @param x       x pos
-   * @param y       y pos
-   * @param items   popup choices
-   * @param al      callback when selecting a choice, or called with null if cancelled
+   * Will create a popupmenu with items as menu items. If cancelled, given
+   * actionlistener will be called with null as argument. Else, actionlistener
+   * will be called with an actionevent whose cmd is the selected string.
+   * 
+   * @param owner
+   *          parent window
+   * @param x
+   *          x pos
+   * @param y
+   *          y pos
+   * @param items
+   *          popup choices
+   * @param al
+   *          callback when selecting a choice, or called with null if cancelled
    */
-  public static void showPopupMenu(Component owner, int x, int y, String items[],
-      final ActionListener al) {
+  public static void showPopupMenu(Component owner, int x, int y,
+      String items[], final ActionListener al) {
     JPopupMenu pu = new JPopupMenu();
     pu.addPopupMenuListener(new PopupMenuListener() {
       @Override
       public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
       }
-      
+
       @Override
       public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {
       }
-      
+
       @Override
       public void popupMenuCanceled(PopupMenuEvent e) {
-        if (al != null) al.actionPerformed(null);
+        if (al != null)
+          al.actionPerformed(null);
       }
     });
     for (String item : items) {
       JMenuItem i = new JMenuItem(item);
-      if (al != null) i.addActionListener(al);
+      if (al != null)
+        i.addActionListener(al);
       pu.add(i);
     }
     pu.show(owner, x, y);
+  }
+
+  static final AlphaComposite GHOST_COMPOSITE = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.5f); 
+  public static Window createGhost(Component c) {
+    final BufferedImage ghostImage = new BufferedImage(c.getWidth(), c.getHeight(),
+        BufferedImage.TYPE_INT_ARGB);
+    Graphics g = ghostImage.getGraphics();
+    c.paint(g);
+    Window w = new Window(null) {
+      @Override
+      public void paint(Graphics g) {
+        Graphics2D g2 = (Graphics2D) g;
+        g2.setComposite(GHOST_COMPOSITE);
+        g2.drawImage(ghostImage, 0, 0, null);
+      }
+
+      @Override
+      public void update(Graphics g) {
+        paint(g);
+      }
+    };
+    w.setAlwaysOnTop(true);
+    w.setBounds(c.getBounds());
+    w.setBackground(new Color(0, true));
+    w.setVisible(true);
+    return w;
   }
 }

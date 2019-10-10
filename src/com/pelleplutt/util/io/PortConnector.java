@@ -51,8 +51,20 @@ public abstract class PortConnector {
    * @return
    */
   public static PortConnector getPortConnector() {
+    // TODO PETER check if there is python3 and pyserial installed, else use native
     PortConnector pc = null;
     String os = System.getProperty("os.name");
+    os = "alwaysusepython";
+    if (System.getProperty(PySerialPortUARTSocket.PROP_PATH_BIN) == null) {
+      System.setProperty(PySerialPortUARTSocket.PROP_PATH_BIN, System
+          .getProperty("user.home")
+          + File.separatorChar
+          + System.getProperty(UARTSocket.PROP_PATH_APPNAME, UARTSocket.PATH_DEFAULT_APPNAME)
+          + File.separatorChar + "py" + File.separatorChar + "pyuartsocket.py");
+    }
+    if (System.getProperty(PySerialPortUARTSocket.PROP_PATH_PYTHON3) == null) {
+      System.setProperty(PySerialPortUARTSocket.PROP_PATH_PYTHON3, "python3");
+    }
     if (os.contains("Windows")) {
       if (System.getProperty(WinSerialPortUARTSocket.PROP_PATH_BIN) == null) {
         System.setProperty(WinSerialPortUARTSocket.PROP_PATH_BIN, System
@@ -86,8 +98,7 @@ public abstract class PortConnector {
       }
       pc = new LinuxPortConnector();
     } else {
-      // TODO if mac
-      pc = null;
+      pc = new PyPortConnector();
     }
     return pc;
   }
@@ -115,6 +126,18 @@ public abstract class PortConnector {
    * @throws IOException
    */
   public abstract void setRTSDTR(boolean rtshigh, boolean dtrhigh)
+      throws IOException;
+  public abstract void setRTS(boolean hi)
+      throws IOException;
+  public abstract void setDTR(boolean hi)
+      throws IOException;
+  public abstract int getCTS()
+      throws IOException;
+  public abstract int getDSR()
+      throws IOException;
+  public abstract int getRI()
+      throws IOException;
+  public abstract int getCD()
       throws IOException;
 
   /**
@@ -160,6 +183,7 @@ public abstract class PortConnector {
   }
 
   public void configure(Port portSetting) throws IOException {
+    Log.println("configuring " + portSetting.portName);
     doConfigure(portSetting);
   }
 
@@ -201,6 +225,9 @@ public abstract class PortConnector {
    */
   public PushbackInputStream getInputStream() {
     return inputStream;
+  }
+  
+  public void dispose() {
   }
 
   protected void setInputStream(InputStream inputStream) {

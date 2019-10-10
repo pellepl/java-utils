@@ -25,7 +25,8 @@ public class WinPortConnector extends PortConnector {
 
 	public void doConnect(Port portSetting) throws Exception {
 		UARTSocket winUartSocket = new WinSerialPortUARTSocket();
-		port = (WinSerialPortUARTSocket)WinSerialPortUARTSocket.getPort(portSetting.portName, winUartSocket);
+		port = (WinSerialPortUARTSocket)WinSerialPortUARTSocket.createServer(
+		    portSetting.portName, true, winUartSocket);
 		configure(portSetting);
 		setInputStream(port.openInputStream());
 		setOutputStream(port.openOutputStream());
@@ -33,6 +34,7 @@ public class WinPortConnector extends PortConnector {
 
 	public void doDisconnect() throws IOException {
 		port.close();
+		port = null;  
 	}
 
 	@Override
@@ -129,15 +131,15 @@ public class WinPortConnector extends PortConnector {
 			parity = LinuxSerialPortUARTSocket.PARITY_NONE;
 			break;
 		}
-		port.configure(baud, databits, parity, stopbits, false, false, false,
+		port.configure(baud, databits, parity, stopbits, portSetting.xonxoff, portSetting.rtscts, portSetting.dsrdtr,
 				timeout != 0 ? (timeout + 1000) : 0);
 	}
-
 	
 	public String[] getDevices() {
 		try {
 		  if (port == null) {
-		    port = (WinSerialPortUARTSocket)WinSerialPortUARTSocket.getPort(null, new WinSerialPortUARTSocket());
+		    port = (WinSerialPortUARTSocket)WinSerialPortUARTSocket.createServer(
+		        null, false, new WinSerialPortUARTSocket());
 		  }
 			return port.getDevices();
 		} catch (Throwable t) {
@@ -145,4 +147,33 @@ public class WinPortConnector extends PortConnector {
 			return null;
 		}
 	}
+  @Override
+  public void setRTS(boolean hi) throws IOException {
+    port.setRTS(hi);
+  }
+
+  @Override
+  public void setDTR(boolean hi) throws IOException {
+    port.setDTR(hi);
+  }
+
+  @Override
+  public int getCTS() throws IOException {
+    return -1;
+  }
+
+  @Override
+  public int getDSR() throws IOException {
+    return -1;
+  }
+
+  @Override
+  public int getRI() throws IOException {
+    return -1;
+  }
+
+  @Override
+  public int getCD() throws IOException {
+    return -1;
+  }
 }
