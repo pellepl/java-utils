@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+# v1.1dev
+
 # No select, only threads, to be window$ compatible
 
 #
@@ -26,11 +28,22 @@ g_id = 0
 server = None
 g_running = True
 
+# Control channel
+CLIENT_CTRL = 0
+# Data channel, what is received from uart
+CLIENT_DATA_RX = 1
+# Data channel, what is sent to uart
+CLIENT_DATA_TX = 2
+# Data channel, what is received from uart and can send to uart
+CLIENT_DATA_RXTX = 3
+
 CMD_SERVER_SHUTDOWN = "X"
 CMD_CLIENT_SHUTDOWN = "C"
+CMD_LIST_CHANNELS = "D"
 CMD_IDENTIFY = "I"
 CMD_ATTACH = "A"
 CMD_LIST_SERIALS = "L"
+CMD_LIST_OPEN_SERIALS = "S"
 CMD_OPEN_SERIAL = "O"
 CMD_CONFIG_SERIAL = "U"
 CMD_CONFIG_SERIAL_BAUDRATE = "B"
@@ -78,9 +91,16 @@ def drop_dead():
 def finalize_client(client):
   """ kill client (data/ctrl) """
   dbg("client {:d} exited - cleanup".format(client.id))
-  if client.ctrl:
+  if client.type == CLIENT_CTRL:
     dbg("  client {:d} is control".format(client.id))
-    for data_client in client.data_clients:
+    for data_client in client.data_clients_r:
+      try:
+        dbg("    client {:d} is attached and stopped".format(data_client.id))
+        g_data_clients.remove(data_client)
+      except ValueError:
+        pass
+      data_client.running = False
+    for data_client in client.data_clients_t:
       try:
         dbg("    client {:d} is attached and stopped".format(data_client.id))
         g_data_clients.remove(data_client)
@@ -104,7 +124,11 @@ def finalize_client(client):
       pass
     for ctrl_client in g_ctrl_clients:
       try:
-        ctrl_client.data_clients.remove(client)
+        ctrl_client.data_clients_r.remove(client)
+      except ValueError:
+        pass
+      try:
+        ctrl_client.data_clients_t.remove(client)
       except ValueError:
         pass
     dbg("  client {:d} is stopped".format(client.id))
@@ -126,7 +150,7 @@ def serial_rx(uart):
     if len(ser_data) == 0:
       continue
     lldbg("  ser{:s}->{:s}".format(uart.name, str(ser_data)))
-    for data_client in uart.ctrl_client.data_clients:
+    for data_client in uart.ctrl_client.data_clients_r:
       data_client.q_ser2eth.put(ser_data)
 
 def serial_tx(uart):
@@ -136,6 +160,8 @@ def serial_tx(uart):
       eth_data = uart.q_eth2ser.get(True, 1.0)
       lldbg("  ser{:s}<-{:s}".format(uart.name, str(eth_data)))
       uart.serial.write(eth_data)
+      for data_client in uart.ctrl_client.data_clients_t:
+        data_client.q_ser2eth.put(eth_data)
     except queue.Empty:
       pass
     except serial.serialutil.SerialException as e:
@@ -220,10 +246,11 @@ class Client(threading.Thread):
     g_id = g_id + 1
     self.running = True
     self.socket = request_handler.request
-    self.ctrl = True
+    self.type = CLIENT_CTRL
     self.cmd = ""
     self.q_ser2eth = queue.Queue()
-    self.data_clients = []
+    self.data_clients_r = []  # these are the CLIENT_DATA_RX and CLIENT_DATA_RXTX types
+    self.data_clients_t = []  # these are the CLIENT_DATA_TX ypes
     self.ctrl_client = None
     self.uart = None
     self.ser_rtimeout = 1.0
@@ -239,8 +266,7 @@ class Client(threading.Thread):
     self.ser_rts = None
     self.ser_dtr = None
     self.zeroes = 0
-
-    dbg("client {:d} entered".format(self.id))
+    dbg("client {:d} entered [{:s}:{:d}]".format(self.id, self.socket.getpeername()[0], self.socket.getpeername()[1]))
     self.start()
 
   def run(self):
@@ -255,6 +281,39 @@ class Client(threading.Thread):
   def echo(self, text):
     """ echo message to peer """
     self.socket.sendall(bytes(text, 'ascii'))
+
+  def echo_client(self, client):
+    """ echo client info to peer """
+    if client.type == CLIENT_CTRL:
+      self.echo(str("C{:d}\t[{:s}:{:d}]".format(client.id, client.socket.getpeername()[0], client.socket.getpeername()[1])))
+      if client.uart:
+        self.echo(str("\tuart:") + str(client.uart.name) + str("\t") + \
+                  str("baud:") + str(client.uart.serial.baudrate) + str("\t") + \
+                  str("data:") + str(client.uart.serial.bytesize) + str("\t") + \
+                  str("stop:") + str(client.uart.serial.stopbits) + str("\t") + \
+                  str("par:") + str(client.uart.serial.parity) + str("\t") + \
+                  str("rtmo:") + str(client.uart.serial.timeout) + str("\t") + \
+                  str("wtmo:") + str(client.uart.serial.write_timeout) + str("\t") + \
+                  str("itmo:") + str(client.uart.serial.inter_byte_timeout) + str("\t") + \
+                  str("dsrdtr:") + str(client.uart.serial.dsrdtr) + str("\t") + \
+                  str("rtscts:") + str(client.uart.serial.rtscts) + str("\t") + \
+                  str("xonxoff:") + str(client.uart.serial.xonxoff))
+      if len(client.data_clients_r) + len(client.data_clients_t) > 0:
+        self.echo(str("\tattachees:") + str(len(client.data_clients_r) + len(client.data_clients_t)))
+      self.echo(str("\n"))
+    else:
+      self.echo(str("D{:d}\t[{:s}:{:d}]".format(client.id, client.socket.getpeername()[0], client.socket.getpeername()[1])))
+      if client.type == CLIENT_DATA_RX:
+        self.echo(str("\trx"))
+      elif client.type == CLIENT_DATA_TX:
+        self.echo(str("\ttx"))
+      elif client.type == CLIENT_DATA_RXTX:
+        self.echo(str("\trxtx"))
+      if client.ctrl_client != None:
+        self.echo(str("\tattached:C") + str(client.ctrl_client.id))
+        if client.ctrl_client.uart:
+          self.echo(str("\tuart:") + str(client.ctrl_client.uart.name))
+      self.echo(str("\n"))
 
   def error(self, text):
     """ echo error to peer """
@@ -273,7 +332,7 @@ class Client(threading.Thread):
         sys.exit(1)
       return
     self.zeroes = 0
-    if self.ctrl:
+    if self.type == CLIENT_CTRL:
       strdata = str(data, 'ascii')
       self.cmd = self.cmd + strdata
       if strdata.endswith("\n"):
@@ -286,37 +345,39 @@ class Client(threading.Thread):
           traceback.print_exc()
         self.cmd = ""
 
-    else:
+    elif self.type == CLIENT_DATA_RXTX:
       if self.ctrl_client.uart != None:
         lldbg("  eth{:s}<-{:s}".format(self.ctrl_client.uart.name, str(data)))
         self.ctrl_client.uart.q_eth2ser.put(data)
 
   def help(self):
     """ dump help to peer """
-    self.echo(CMD_SERVER_SHUTDOWN + "        shuts down server\n")
-    self.echo(CMD_CLIENT_SHUTDOWN + "        shuts down client and any attached clients\n")
-    self.echo(CMD_IDENTIFY        + "        identifies this client\n")
-    self.echo(CMD_ATTACH          + " <n>    attaches this client to given client and makes this client a data channel\n")
-    self.echo(CMD_LIST_SERIALS    + "        lists serial ports\n")
-    self.echo(CMD_OPEN_SERIAL     + " <ser>  opens serial port\n")
-    self.echo(CMD_CONFIG_SERIAL   + " <config params> sets/gets serial port params and reconfigures if open\n")
-    self.echo("  " + CMD_CONFIG_SERIAL_BAUDRATE + "<baud>  sets serial baudrate\n")
-    self.echo("  " + CMD_CONFIG_SERIAL_PARITY   + "<par>   sets serial parity\n")
-    self.echo("  " + CMD_CONFIG_SERIAL_BYTESIZE + "<byte>  sets serial bytesize\n")
-    self.echo("  " + CMD_CONFIG_SERIAL_STOPBITS + "<stop>  sets serial stopbits\n")
-    self.echo("  " + CMD_CONFIG_SERIAL_TIMEOUT  + "<tmo>   sets serial read and write timeout in milliseconds\n")
-    self.echo("  " + CMD_CONFIG_SERIAL_RTIMEOUT + "<tmo>   sets serial read timeout in milliseconds\n")
-    self.echo("  " + CMD_CONFIG_SERIAL_WTIMEOUT + "<tmo>   sets serial write timeout in milliseconds\n")
-    self.echo("  " + CMD_CONFIG_SERIAL_ITIMEOUT + "<tmo>   sets serial intracharacter timeout in milliseconds\n")
-    self.echo("  " + CMD_CONFIG_SERIAL_RTSCTS   + "<ena>   enable or disable rts/cts hw flow control\n")
-    self.echo("  " + CMD_CONFIG_SERIAL_DSRDTR   + "<ena>   enable or disable dsr/dtr hw flow control\n")
-    self.echo("  " + CMD_CONFIG_SERIAL_XONXOFF  + "<ena>   enable or disable xon/xoff sw flow control\n")
-    self.echo("  " + CMD_CONFIG_SERIAL_SET_RTS  + "<rts>   sets serial rts line hi/lo\n")
-    self.echo("  " + CMD_CONFIG_SERIAL_SET_DTR  + "<dtr>   sets serial dtr line hi/lo\n")
-    self.echo("  " + CMD_CONFIG_SERIAL_GET_CTS  + "        returns serial cts line state\n")
-    self.echo("  " + CMD_CONFIG_SERIAL_GET_DSR  + "        returns serial dsr line state\n")
-    self.echo("  " + CMD_CONFIG_SERIAL_GET_RI   + "        returns serial ri line state\n")
-    self.echo("  " + CMD_CONFIG_SERIAL_GET_CD   + "        returns serial cd line state\n")
+    self.echo(CMD_SERVER_SHUTDOWN  + "            shuts down server, closes all serials, and detaches all clients and channels\n")
+    self.echo(CMD_CLIENT_SHUTDOWN  + " (<n>)      shuts down given channel or self if no id\n")
+    self.echo(CMD_IDENTIFY         + "            returns this channels' id\n")
+    self.echo(CMD_ATTACH           + " <n> (R|T)  attaches this channel to given channel, making this channel a data channel\n")
+    self.echo(CMD_LIST_CHANNELS    + "            lists all control and data channels\n")
+    self.echo(CMD_LIST_SERIALS     + " (*)        lists serial ports, gives extra info if non-empty argument\n")
+    self.echo(CMD_LIST_OPEN_SERIALS+ "            lists opened ports by channel id and associated serial port\n")
+    self.echo(CMD_OPEN_SERIAL      + " <ser>      opens serial port\n")
+    self.echo(CMD_CONFIG_SERIAL    + " <config params> sets/gets serial port params and reconfigures if open\n")
+    self.echo("  " + CMD_CONFIG_SERIAL_BAUDRATE + "<baud>      sets serial baudrate\n")
+    self.echo("  " + CMD_CONFIG_SERIAL_PARITY   + "<par>       sets serial parity\n")
+    self.echo("  " + CMD_CONFIG_SERIAL_BYTESIZE + "<byte>      sets serial bytesize\n")
+    self.echo("  " + CMD_CONFIG_SERIAL_STOPBITS + "<stop>      sets serial stopbits\n")
+    self.echo("  " + CMD_CONFIG_SERIAL_TIMEOUT  + "<tmo>       sets serial read and write timeout in milliseconds\n")
+    self.echo("  " + CMD_CONFIG_SERIAL_RTIMEOUT + "<tmo>       sets serial read timeout in milliseconds\n")
+    self.echo("  " + CMD_CONFIG_SERIAL_WTIMEOUT + "<tmo>       sets serial write timeout in milliseconds\n")
+    self.echo("  " + CMD_CONFIG_SERIAL_ITIMEOUT + "<tmo>       sets serial intracharacter timeout in milliseconds\n")
+    self.echo("  " + CMD_CONFIG_SERIAL_RTSCTS   + "<ena>       enable or disable rts/cts hw flow control\n")
+    self.echo("  " + CMD_CONFIG_SERIAL_DSRDTR   + "<ena>       enable or disable dsr/dtr hw flow control\n")
+    self.echo("  " + CMD_CONFIG_SERIAL_XONXOFF  + "<ena>       enable or disable xon/xoff sw flow control\n")
+    self.echo("  " + CMD_CONFIG_SERIAL_SET_RTS  + "<rts>       sets serial rts line hi/lo\n")
+    self.echo("  " + CMD_CONFIG_SERIAL_SET_DTR  + "<dtr>       sets serial dtr line hi/lo\n")
+    self.echo("  " + CMD_CONFIG_SERIAL_GET_CTS  + "            returns serial cts line state\n")
+    self.echo("  " + CMD_CONFIG_SERIAL_GET_DSR  + "            returns serial dsr line state\n")
+    self.echo("  " + CMD_CONFIG_SERIAL_GET_RI   + "            returns serial ri line state\n")
+    self.echo("  " + CMD_CONFIG_SERIAL_GET_CD   + "            returns serial cd line state\n")
 
   def on_command(self, cmd_str):
     """ handle ctrl command from peer """
@@ -324,18 +385,37 @@ class Client(threading.Thread):
     cmd = cmds[0].strip()
     if len(cmds) == 2:
       arg = cmds[1].strip()
+      arg2 = None
     elif len(cmds) > 2:
-      arg = cmds[1:]
+      arg = cmds[1].strip()
+      arg2 = cmds[2].strip()
     else:
       arg = None
+      arg2 = None
 
     if cmd == CMD_SERVER_SHUTDOWN:
       self.ok()
       drop_dead()
 
     elif cmd == CMD_CLIENT_SHUTDOWN:
-      self.running = False
-      self.ok()
+      closee = None
+      if (arg != None):
+        other_id = int(arg)
+        for client in g_ctrl_clients:
+          if client.id == other_id:
+            closee = client
+            break
+        for client in g_data_clients:
+          if client.id == other_id:
+            closee = client
+            break
+      else:
+        closee = self
+      if closee == None:
+        self.error("no such channel")
+      else:
+        closee.running = False
+        self.ok()
 
     elif cmd == CMD_IDENTIFY:
       self.echo("{}\n".format(self.id))
@@ -345,17 +425,30 @@ class Client(threading.Thread):
       other_id = int(arg)
       if other_id == self.id:
         self.error("cannot attach to self")
-      elif len(self.data_clients) > 0:
+      elif len(self.data_clients_r) + len(self.data_clients_t) > 0:
         self.error("have attachees")
       else:
+        data_type = CLIENT_DATA_RXTX
+        if arg2 != None:
+          if arg2 == 'R':
+            data_type = CLIENT_DATA_RX
+          elif arg2 == 'T':
+            data_type = CLIENT_DATA_TX
+          else:
+            self.error("unknown type (R,T or nothing)")
+            return
         for ctrl_client in g_ctrl_clients:
+
           if ctrl_client.id == other_id:
-            dbg("attach client {:d} to {:d}".format(self.id, other_id))
+            dbg("attach client {:d} to {:d} as type {:d}".format(self.id, other_id, data_type))
             self.ctrl_client = ctrl_client
-            ctrl_client.data_clients.append(self)
+            if data_type == CLIENT_DATA_TX:
+              ctrl_client.data_clients_t.append(self)
+            else:
+              ctrl_client.data_clients_r.append(self)
             g_ctrl_clients.remove(self)
             g_data_clients.append(self)
-            self.ctrl = False
+            self.type = data_type
             self.ok()
             return
         self.error("no such channel")
@@ -367,6 +460,19 @@ class Client(threading.Thread):
           self.echo(str(p[0]) + "\t" + str(p[1]) + "\t" + str(p[2]) + "\n")
         else:
           self.echo(str(p[0]) + "\n")
+      self.ok()
+
+    elif cmd == CMD_LIST_CHANNELS:
+      for client in g_ctrl_clients:
+        self.echo_client(client)
+      for client in g_data_clients:
+        self.echo_client(client)
+      self.ok()
+
+    elif cmd == CMD_LIST_OPEN_SERIALS:
+      for ctrl_client in g_ctrl_clients:
+        if ctrl_client.uart:
+          self.echo_client(ctrl_client)
       self.ok()
 
     elif cmd == CMD_OPEN_SERIAL:
@@ -478,6 +584,8 @@ class Client(threading.Thread):
         else:
           self.error("unknown setting (0,1)")
           ok = 0
+        if ok == 1:
+          conf |= 1
 
       elif cmd == CMD_CONFIG_SERIAL_DSRDTR:
         if arg == "0":
@@ -487,6 +595,8 @@ class Client(threading.Thread):
         else:
           self.error("unknown setting (0,1)")
           ok = 0
+        if ok == 1:
+          conf |= 1
 
       elif cmd == CMD_CONFIG_SERIAL_XONXOFF:
         if arg == "0":
@@ -496,6 +606,8 @@ class Client(threading.Thread):
         else:
           self.error("unknown setting (0,1)")
           ok = 0
+        if ok == 1:
+          conf |= 1
 
       elif cmd == CMD_CONFIG_SERIAL_SET_RTS:
         if arg == "0":
