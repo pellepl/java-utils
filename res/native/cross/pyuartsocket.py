@@ -3,7 +3,13 @@
 # v1.1dev
 
 # No select, only threads, to be window$ compatible
-
+#
+# Ideas
+#   * [done] rx or tx sniffing
+#   * [done] exclusive rxtx, only one can tx to uart
+#   * send uart data as multicast instead of tcp
+#   * connect uartsocket servers over different computers
+#   * uartsocket discovery over network
 #
 # Client:Ctrl <1---1> Serial
 #      ^
@@ -27,6 +33,9 @@ g_uarts = []
 g_id = 0
 server = None
 g_running = True
+g_eth_recv_size = 8
+g_eth_poll = 1
+g_ser_recv_size = 1
 
 # Control channel
 CLIENT_CTRL = 0
@@ -64,6 +73,10 @@ CMD_CONFIG_SERIAL_GET_DSR = "s"
 CMD_CONFIG_SERIAL_GET_RI = "i"
 CMD_CONFIG_SERIAL_GET_CD = "e"
 CMD_HELP = "?"
+
+def out(s):
+  """ output """
+  print(s)
 
 def dbg(s):
   """ debug output """
@@ -140,7 +153,7 @@ def serial_rx(uart):
   """ thread serial rx """
   while g_running and uart.running:
     try:
-      ser_data = uart.serial.read(1)
+      ser_data = uart.serial.read(g_ser_recv_size)
     except serial.serialutil.SerialException as e:
       uart.ctrl_client.error("serial:{}".format(str(e)))
       uart.ctrl_client.running = False
@@ -173,8 +186,9 @@ def serial_tx(uart):
 
 class Uart:
   """ class: uart """
-  def __init__(self, ctrl_client, name):
+  def __init__(self, ctrl_client, name, exclusive):
     self.name = name.strip()
+    self.exclusive = exclusive
     self.q_eth2ser = queue.Queue()
     self.running = True
     self.ctrl_client = ctrl_client
@@ -355,11 +369,11 @@ class Client(threading.Thread):
     self.echo(CMD_SERVER_SHUTDOWN  + "            shuts down server, closes all serials, and detaches all clients and channels\n")
     self.echo(CMD_CLIENT_SHUTDOWN  + " (<n>)      shuts down given channel or self if no id\n")
     self.echo(CMD_IDENTIFY         + "            returns this channels' id\n")
-    self.echo(CMD_ATTACH           + " <n> (R|T)  attaches this channel to given channel, making this channel a data channel\n")
+    self.echo(CMD_ATTACH           + " <n> (R|T)  attaches this channel to given channel, making this channel a full duplex data channel, or an Rx/Tx sniff channel\n")
     self.echo(CMD_LIST_CHANNELS    + "            lists all control and data channels\n")
     self.echo(CMD_LIST_SERIALS     + " (*)        lists serial ports, gives extra info if non-empty argument\n")
     self.echo(CMD_LIST_OPEN_SERIALS+ "            lists opened ports by channel id and associated serial port\n")
-    self.echo(CMD_OPEN_SERIAL      + " <ser>      opens serial port\n")
+    self.echo(CMD_OPEN_SERIAL      + " <ser> (X)  opens serial port, eXclusively if wanted\n")
     self.echo(CMD_CONFIG_SERIAL    + " <config params> sets/gets serial port params and reconfigures if open\n")
     self.echo("  " + CMD_CONFIG_SERIAL_BAUDRATE + "<baud>      sets serial baudrate\n")
     self.echo("  " + CMD_CONFIG_SERIAL_PARITY   + "<par>       sets serial parity\n")
@@ -445,6 +459,9 @@ class Client(threading.Thread):
             if data_type == CLIENT_DATA_TX:
               ctrl_client.data_clients_t.append(self)
             else:
+              if not ctrl_client.accept(data_type):
+                self.error("control channel denies access of data channel type")
+                return
               ctrl_client.data_clients_r.append(self)
             g_ctrl_clients.remove(self)
             g_data_clients.append(self)
@@ -476,9 +493,33 @@ class Client(threading.Thread):
       self.ok()
 
     elif cmd == CMD_OPEN_SERIAL:
+      exclusive = False
+      if arg2 != None:
+        if arg2 == 'X':
+          exclusive = True
+        else:
+          self.error("unknown flag (X or nothing)")
+          return
+
       if self.uart:
         self.uart.close()
-      self.uart = Uart(self, arg)
+
+      for u in g_uarts:
+        if u.name == arg:
+          self.error("already opened in other channel")
+          return
+
+      if exclusive:
+        rxtxers = 0
+        for data_client in self.data_clients_r:
+          if data_client.type == CLIENT_DATA_RXTX:
+            rxtxers = rxtxers + 1
+            if rxtxers > 1:
+              # not allowed, close client
+              dbg("ctrl channel " + str(self.id) + " opened uart exclusively, dropping data client " + str(data_client.id))
+              data_client.running = False
+
+      self.uart = Uart(self, arg, exclusive)
       self.uart.open()
       g_uarts.append(self.uart)
       self.ok()
@@ -675,6 +716,16 @@ class Client(threading.Thread):
     if ok == 1:
       self.ok()
 
+  def accept(self, data_type):
+    """ returns if a data channel may attach to this channel """
+    if data_type != CLIENT_CTRL and data_type == CLIENT_DATA_RXTX:
+      if self.uart != None and self.uart.exclusive:
+        for data_client in self.data_clients_r:
+          if data_client.type == CLIENT_DATA_RXTX:
+            # uart is exclusive, and already have one data channel - deny
+            return False
+    return True
+
 class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
   """ class: server request handler """
   def handle(self):
@@ -682,10 +733,10 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
     g_ctrl_clients.append(client)
     try:
       cmd = ""
-      self.request.settimeout(1.0)
+      self.request.settimeout(g_eth_poll)
       while g_running and client.running:
         try:
-          client.on_eth_data(self.request.recv(8))
+          client.on_eth_data(self.request.recv(g_eth_recv_size))
         except socket.timeout:
           continue
         if not client.running:
@@ -702,14 +753,62 @@ class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
   allow_reuse_address = True
 
 
+#
+# Entry point
+#
+
+def dump_help(prg):
+  """ print help """
+  out("Usage: " + prg + " [OPTION...] [bind_address] [port]")
+  out("       -e              Ethernet receive size (defaults to 8 bytes)")
+  out("       -p              Ethernet client poll interval (defaults to 1 second)")
+  out("       -s              Serial receive size (defaults to 1 byte)")
+
 if __name__ == "__main__":
   """ main entry """
   HOST, PORT = "localhost", 5001
-  if len(sys.argv) > 2:
-    HOST = sys.argv[1]
-    PORT = int(sys.argv[2])
-  elif len(sys.argv) == 2:
-    PORT = int(sys.argv[1])
+  host_port_arg = None
+  port_arg = None
+  skip = False
+  for ix, arg in enumerate(sys.argv):
+    if ix == 0 or skip:
+      skip = False
+      continue
+    if arg[0] == '-':
+      if arg == "-e":
+        g_eth_recv_size = int(sys.argv[ix+1])
+        skip = True
+      elif arg == "-s":
+        g_ser_recv_size = int(sys.argv[ix+1])
+        skip = True
+      elif arg == "-p":
+        g_eth_poll = int(sys.argv[ix+1])
+        skip = True
+      
+    elif host_port_arg == None:
+      host_port_arg = arg
+    elif port_arg == None:
+      port_arg = arg
+    else:
+      out("Host and port already set, ambiguous argument {:s}".format(arg))
+      dump_help(sys.argv[0])
+      sys.exit(1)
+  if port_arg:
+    HOST = host_port_arg
+    PORT = int(port_arg)
+  elif host_port_arg:
+    port_nbr = None
+    try:
+      port_nbr = int(host_port_arg)
+      if port_nbr < 0 or port_nbr >= 0x10000:
+        port_nbr = None
+    except:
+      pass
+    if port_nbr:
+      PORT = port_nbr
+    else:
+      socket.inet_aton(host_port_arg)
+      HOST = host_port_arg
 
   dbg("starting server @ {:s}:{:d}".format(HOST, PORT))
   server = ThreadedTCPServer((HOST, PORT), ThreadedTCPRequestHandler)
@@ -723,4 +822,3 @@ if __name__ == "__main__":
   g_running = False
   server.shutdown()
   dbg("stopped server @ {:s}:{:d}".format(HOST, PORT))
-
