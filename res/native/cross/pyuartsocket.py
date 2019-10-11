@@ -795,7 +795,7 @@ def broadcast_query_listen(host, port):
         dbg("got query from {:s}:{:d}".format(addr[0],addr[1]))
         sockrepl = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sockrepl.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sockrepl.sendto("{:s}{:s}{:s}".format(BRDCST_HDR, VERSION, BRDCST_REPLY_TAIL).encode(), (addr[0], port+1))
+        sockrepl.sendto("{:s}{:s}:{:d}{:s}".format(BRDCST_HDR, VERSION, PORT, BRDCST_REPLY_TAIL).encode(), (addr[0], port+1))
     except socket.timeout:
       pass
   dbg("stopped broadcast listener")
@@ -816,13 +816,18 @@ def udp_reply_listen(host, port, timeout):
   sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
   sock.bind((host, port+1))
   then = round(time.time())
+  reporters = []
   while remaining_time > 0:
-    sock.settimeout(1.0 + random.uniform(-0.1,0.1))
+    sock.settimeout(1.0 + random.uniform(-0.2,0.2))
     try:
       data, addr = sock.recvfrom(32)
       strdata = data.decode().strip()
       if strdata.startswith(BRDCST_HDR) and strdata.endswith(BRDCST_REPLY_TAIL):
-        print("{:s}:{:d}".format(addr[0],PORT))
+        remote_port = int(strdata[strdata.rfind(":")+1:-1])
+        remote = "{:s}:{:d}".format(addr[0],remote_port)
+        if not remote in reporters:
+          reporters.append(remote)
+          out(remote)
     except socket.timeout:
       broadcast_query(port)
       pass
