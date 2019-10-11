@@ -7,8 +7,8 @@
 # Ideas
 #   * [done] rx or tx sniffing
 #   * [done] exclusive rxtx, only one can tx to uart
+#   * connect uartsocket servers, sharing uarts
 #   * send uart data as multicast instead of tcp
-#   * connect uartsocket servers over different computers
 #   * uartsocket discovery over network
 #
 # Client:Ctrl <1---1> Serial
@@ -26,6 +26,8 @@ import serial
 import queue
 import traceback
 import serial.tools.list_ports
+
+VERSION = "1.1 dev"
 
 g_ctrl_clients = []
 g_data_clients = []
@@ -248,8 +250,25 @@ class Uart:
     ("xonxoff", self.ctrl_client.ser_xonxoff),
     ("rts", self.ctrl_client.ser_rts),
     ("dtr", self.ctrl_client.ser_dtr)
-    ]));
+    ]))
 
+  def setRTS(self, x):
+    self.serial.setRTS(x)
+
+  def setDTR(self, x):
+    self.serial.setDTR(x)
+
+  def readCD(self):
+    return self.serial.cd
+
+  def readCTS(self):
+    return self.serial.cts
+
+  def readDSR(self):
+    return self.serial.dsr
+
+  def readRI(self):
+    return self.serial.ri
 
 class Client(threading.Thread):
   """ class: client """
@@ -302,16 +321,16 @@ class Client(threading.Thread):
       self.echo(str("C{:d}\t[{:s}:{:d}]".format(client.id, client.socket.getpeername()[0], client.socket.getpeername()[1])))
       if client.uart:
         self.echo(str("\tuart:") + str(client.uart.name) + str("\t") + \
-                  str("baud:") + str(client.uart.serial.baudrate) + str("\t") + \
-                  str("data:") + str(client.uart.serial.bytesize) + str("\t") + \
-                  str("stop:") + str(client.uart.serial.stopbits) + str("\t") + \
-                  str("par:") + str(client.uart.serial.parity) + str("\t") + \
-                  str("rtmo:") + str(client.uart.serial.timeout) + str("\t") + \
-                  str("wtmo:") + str(client.uart.serial.write_timeout) + str("\t") + \
-                  str("itmo:") + str(client.uart.serial.inter_byte_timeout) + str("\t") + \
-                  str("dsrdtr:") + str(client.uart.serial.dsrdtr) + str("\t") + \
-                  str("rtscts:") + str(client.uart.serial.rtscts) + str("\t") + \
-                  str("xonxoff:") + str(client.uart.serial.xonxoff))
+                  str("baud:") + str(client.ser_baudrate) + str("\t") + \
+                  str("data:") + str(client.ser_bytesize) + str("\t") + \
+                  str("stop:") + str(client.ser_stopbits) + str("\t") + \
+                  str("par:") + str(client.ser_parity) + str("\t") + \
+                  str("rtmo:") + str("-" if client.ser_rtimeout == None else client.ser_rtimeout*1000.0) + str("\t") + \
+                  str("wtmo:") + str("-" if client.ser_wtimeout == None else client.ser_wtimeout*1000.0) + str("\t") + \
+                  str("itmo:") + str("-" if client.ser_itimeout == None else client.ser_itimeout*1000.0) + str("\t") + \
+                  str("dsrdtr:") + str("1" if client.ser_dsrdtr else "0") + str("\t") + \
+                  str("rtscts:") + str("1" if client.ser_rtscts else "0") + str("\t") + \
+                  str("xonxoff:") + str("1" if client.ser_xonxoff else "0"))
       if len(client.data_clients_r) + len(client.data_clients_t) > 0:
         self.echo(str("\tattachees:") + str(len(client.data_clients_r) + len(client.data_clients_t)))
       self.echo(str("\n"))
@@ -366,6 +385,7 @@ class Client(threading.Thread):
 
   def help(self):
     """ dump help to peer """
+    self.echo("uartsocket " + VERSION + "\n")
     self.echo(CMD_SERVER_SHUTDOWN  + "            shuts down server, closes all serials, and detaches all clients and channels\n")
     self.echo(CMD_CLIENT_SHUTDOWN  + " (<n>)      shuts down given channel or self if no id\n")
     self.echo(CMD_IDENTIFY         + "            returns this channels' id\n")
@@ -531,10 +551,8 @@ class Client(threading.Thread):
       self.help()
       self.ok()
 
-
     elif cmd == "-":
-      if self.uart:
-        print("{:s}".format(str(self.uart.serial.get_settings())))
+      self.echo_client(self)
       self.ok()
 
     else:
@@ -654,11 +672,11 @@ class Client(threading.Thread):
         if arg == "0":
           self.ser_rts = False
           if self.uart != None:
-            self.uart.serial.setRTS(False)
+            self.uart.setRTS(False)
         elif arg == "1":
           self.ser_rts = True
           if self.uart != None:
-            self.uart.serial.setRTS(True)
+            self.uart.setRTS(True)
         elif arg == "-":
           self.ser_rts = None
         else:
@@ -669,11 +687,11 @@ class Client(threading.Thread):
         if arg == "0":
           self.ser_dtr = False
           if self.uart != None:
-            self.uart.serial.setDTR(False)
+            self.uart.setDTR(False)
         elif arg == "1":
           self.ser_dtr = True
           if self.uart != None:
-            self.uart.serial.setDTR(True)
+            self.uart.setDTR(True)
         elif arg == "-":
           self.ser_dtr = None
         else:
@@ -682,25 +700,25 @@ class Client(threading.Thread):
 
       elif cmd == CMD_CONFIG_SERIAL_GET_CD:
         if self.uart != None:
-          self.echo(str(1 if self.uart.serial.cd else 0) + "\n")
+          self.echo(str(1 if self.uart.readCD() else 0) + "\n")
         else:
           self.echo("-\n")
 
       elif cmd == CMD_CONFIG_SERIAL_GET_CTS:
         if self.uart != None:
-          self.echo(str(1 if self.uart.serial.cts else 0) + "\n")
+          self.echo(str(1 if self.uart.readCTS() else 0) + "\n")
         else:
           self.echo("-\n")
 
       elif cmd == CMD_CONFIG_SERIAL_GET_DSR:
         if self.uart != None:
-          self.echo(str(1 if self.uart.serial.dsr else 0) + "\n")
+          self.echo(str(1 if self.uart.readDSR() else 0) + "\n")
         else:
           self.echo("-\n")
 
       elif cmd == CMD_CONFIG_SERIAL_GET_RI:
         if self.uart != None:
-          self.echo(str(1 if self.uart.serial.ri else 0) + "\n")
+          self.echo(str(1 if self.uart.readRI() else 0) + "\n")
         else:
           self.echo("-\n")
 
