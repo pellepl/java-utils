@@ -7,9 +7,9 @@
 # Ideas
 #   * [done] rx or tx sniffing
 #   * [done] exclusive rxtx, only one can tx to uart
-#   * connect uartsocket servers, sharing uarts
+#   * [done] uartsocket discovery over network
 #   * send uart data as multicast instead of tcp
-#   * uartsocket discovery over network
+#   * connect uartsocket servers, sharing uarts
 #
 # Client:Ctrl <1---1> Serial
 #      ^
@@ -18,6 +18,8 @@
 #
 
 import sys
+import random
+import time
 import socket
 import threading
 import socketserver
@@ -76,13 +78,19 @@ CMD_CONFIG_SERIAL_GET_RI = "i"
 CMD_CONFIG_SERIAL_GET_CD = "e"
 CMD_HELP = "?"
 
+BRDCST_HDR = "uartsocket"
+BRDCST_QUERY_TAIL = "?"
+BRDCST_REPLY_TAIL = "!"
+
 def out(s):
   """ output """
-  print(s)
+  if (g_running):
+    print(s)
 
 def dbg(s):
   """ debug output """
-  print(s)
+  if (g_running):
+    print(s)
 
 def lldbg(s):
   """ lowlevel debug output """
@@ -92,6 +100,7 @@ def lldbg(s):
 def drop_dead():
   """ kill server and clients """
   dbg("server shutdown")
+  global g_running
   g_running = False
   for client in g_ctrl_clients:
     dbg("finishing off client {:d}".format(client.id))
@@ -184,7 +193,6 @@ def serial_tx(uart):
       uart.ctrl_client.running = False
       uart.close()
       break
-
 
 class Uart:
   """ class: uart """
@@ -770,6 +778,57 @@ class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
   """ class: server """
   allow_reuse_address = True
 
+#
+# Broadcast listener
+#
+def broadcast_query_listen(host, port):
+  dbg("starting broadcast query listener @ {:s}:{:d}".format(host, port))
+  sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+  sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+  sock.bind(("", port))
+  sock.settimeout(1.0)
+  while g_running:
+    try:
+      data, addr = sock.recvfrom(32)
+      strdata = data.decode().strip()
+      if strdata.startswith(BRDCST_HDR) and strdata.endswith(BRDCST_QUERY_TAIL):
+        dbg("got query from {:s}:{:d}".format(addr[0],addr[1]))
+        sockrepl = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sockrepl.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sockrepl.sendto("{:s}{:s}{:s}".format(BRDCST_HDR, VERSION, BRDCST_REPLY_TAIL).encode(), (addr[0], port+1))
+    except socket.timeout:
+      pass
+  dbg("stopped broadcast listener")
+
+def broadcast_query(port):
+  lldbg("broadcasting query on port {:d}".format(port))
+  cs = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+  cs.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+  cs.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+  cs.sendto("{:s}{:s}{:s}".format(BRDCST_HDR, VERSION, BRDCST_QUERY_TAIL).encode(), ('255.255.255.255', port))
+
+#
+# udp reply listener
+#
+def udp_reply_listen(host, port, timeout):
+  dbg("starting reply listener @ {:s}:{:d}, timeout {:d}".format(host, port+1, timeout))
+  remaining_time = timeout
+  sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+  sock.bind((host, port+1))
+  then = round(time.time())
+  while remaining_time > 0:
+    sock.settimeout(1.0 + random.uniform(-0.1,0.1))
+    try:
+      data, addr = sock.recvfrom(32)
+      strdata = data.decode().strip()
+      if strdata.startswith(BRDCST_HDR) and strdata.endswith(BRDCST_REPLY_TAIL):
+        print("{:s}:{:d}".format(addr[0],PORT))
+    except socket.timeout:
+      broadcast_query(port)
+      pass
+    remaining_time = timeout - (round(time.time()) - then)
+  dbg("stopped reply listener")
+
 
 #
 # Entry point
@@ -778,13 +837,17 @@ class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 def dump_help(prg):
   """ print help """
   out("Usage: " + prg + " [OPTION...] [bind_address] [port]")
-  out("       -e              Ethernet receive size (defaults to 8 bytes)")
-  out("       -p              Ethernet client poll interval (defaults to 1 second)")
-  out("       -s              Serial receive size (defaults to 1 byte)")
+  out("       -e <bytes>      Ethernet receive size (defaults to 8 bytes)")
+  out("       -p <seconds>    Ethernet client poll interval (defaults to 1 second)")
+  out("       -s <bytes>      Serial receive size (defaults to 1 byte)")
+  out("       -b <port>       Starts broadcast service on given port")
+  out("       -B <port>       Queries network for uartsockets")
 
 if __name__ == "__main__":
   """ main entry """
   HOST, PORT = "localhost", 5001
+  broadcast_query_listener_port = None
+  query_server_port = None
   host_port_arg = None
   port_arg = None
   skip = False
@@ -802,7 +865,12 @@ if __name__ == "__main__":
       elif arg == "-p":
         g_eth_poll = int(sys.argv[ix+1])
         skip = True
-      
+      elif arg == "-b":
+        broadcast_query_listener_port = int(sys.argv[ix+1])
+        skip = True
+      elif arg == "-B":
+        query_server_port = int(sys.argv[ix+1])
+        skip = True
     elif host_port_arg == None:
       host_port_arg = arg
     elif port_arg == None:
@@ -828,15 +896,27 @@ if __name__ == "__main__":
       socket.inet_aton(host_port_arg)
       HOST = host_port_arg
 
-  dbg("starting server @ {:s}:{:d}".format(HOST, PORT))
-  server = ThreadedTCPServer((HOST, PORT), ThreadedTCPRequestHandler)
-  server.daemon_threads =  True
-  with server:
-    ip, port = server.server_address
-    server_thread = threading.Thread(target=server.serve_forever)
-    server_thread.daemon = True
-    server_thread.start()
-    server_thread.join()
-  g_running = False
-  server.shutdown()
-  dbg("stopped server @ {:s}:{:d}".format(HOST, PORT))
+  if query_server_port:
+    rx = threading.Thread(target=udp_reply_listen, args = [HOST, query_server_port, 5])
+    rx.daemon = True
+    rx.start()
+    broadcast_query(query_server_port)
+    rx.join()
+  else:    
+    if broadcast_query_listener_port:
+      rx = threading.Thread(target=broadcast_query_listen, args = [HOST, broadcast_query_listener_port])
+      rx.daemon = True
+      rx.start()
+      
+    dbg("starting server @ {:s}:{:d}".format(HOST, PORT))
+    server = ThreadedTCPServer((HOST, PORT), ThreadedTCPRequestHandler)
+    server.daemon_threads =  True
+    with server:
+      ip, port = server.server_address
+      server_thread = threading.Thread(target=server.serve_forever)
+      server_thread.daemon = True
+      server_thread.start()
+      server_thread.join()
+    g_running = False
+    server.shutdown()
+    dbg("stopped server @ {:s}:{:d}".format(HOST, PORT))
