@@ -76,6 +76,7 @@ CMD_CONFIG_SERIAL_GET_CTS = "c"
 CMD_CONFIG_SERIAL_GET_DSR = "s"
 CMD_CONFIG_SERIAL_GET_RI = "i"
 CMD_CONFIG_SERIAL_GET_CD = "e"
+CMD_QUERY = "Q"
 CMD_HELP = "?"
 
 BRDCST_HDR = "uartsocket"
@@ -86,6 +87,12 @@ def out(s):
   """ output """
   if (g_running):
     print(s)
+
+def out_nonl(s):
+  """ output """
+  if (g_running):
+    sys.stdout.write(s)
+    sys.stdout.flush()
 
 def dbg(s):
   """ debug output """
@@ -396,6 +403,7 @@ class Client(threading.Thread):
     self.echo("uartsocket " + VERSION + "\n")
     self.echo(CMD_SERVER_SHUTDOWN  + "            shuts down server, closes all serials, and detaches all clients and channels\n")
     self.echo(CMD_CLIENT_SHUTDOWN  + " (<n>)      shuts down given channel or self if no id\n")
+    self.echo(CMD_QUERY            + " <sec>      scan network for other uartsockets\n")
     self.echo(CMD_IDENTIFY         + "            returns this channels' id\n")
     self.echo(CMD_ATTACH           + " <n> (R|T)  attaches this channel to given channel, making this channel a full duplex data channel, or an Rx/Tx sniff channel\n")
     self.echo(CMD_LIST_CHANNELS    + "            lists all control and data channels\n")
@@ -558,6 +566,17 @@ class Client(threading.Thread):
     elif cmd == CMD_HELP:
       self.help()
       self.ok()
+
+    elif cmd == CMD_QUERY:
+      if arg == None:
+        arg = "1"
+      rx = threading.Thread(target=udp_reply_listen, args = [HOST, PORT, int(arg), self.echo])
+      rx.daemon = True
+      rx.start()
+      broadcast_query(PORT)
+      rx.join()
+      self.ok()
+
 
     elif cmd == "-":
       self.echo_client(self)
@@ -793,6 +812,7 @@ def broadcast_query_listen(host, port):
       strdata = data.decode().strip()
       if strdata.startswith(BRDCST_HDR) and strdata.endswith(BRDCST_QUERY_TAIL):
         dbg("got query from {:s}:{:d}".format(addr[0],addr[1]))
+        time.sleep(0.1 + random.uniform(-0.05,0.05))
         sockrepl = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sockrepl.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sockrepl.sendto("{:s}{:s}:{:d}{:s}".format(BRDCST_HDR, VERSION, PORT, BRDCST_REPLY_TAIL).encode(), (addr[0], port+1))
@@ -810,7 +830,7 @@ def broadcast_query(port):
 #
 # udp reply listener
 #
-def udp_reply_listen(host, port, timeout):
+def udp_reply_listen(host, port, timeout, report_func):
   dbg("starting reply listener @ {:s}:{:d}, timeout {:d}".format(host, port+1, timeout))
   remaining_time = timeout
   sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -818,16 +838,16 @@ def udp_reply_listen(host, port, timeout):
   then = round(time.time())
   reporters = []
   while remaining_time > 0:
-    sock.settimeout(1.0 + random.uniform(-0.2,0.2))
+    sock.settimeout(0.4 + random.uniform(-0.2,0.1))
     try:
       data, addr = sock.recvfrom(32)
       strdata = data.decode().strip()
       if strdata.startswith(BRDCST_HDR) and strdata.endswith(BRDCST_REPLY_TAIL):
         remote_port = int(strdata[strdata.rfind(":")+1:-1])
-        remote = "{:s}:{:d}".format(addr[0],remote_port)
+        remote = "{:s}:{:d}\n".format(addr[0],remote_port)
         if not remote in reporters:
           reporters.append(remote)
-          out(remote)
+          report_func(remote)
     except socket.timeout:
       broadcast_query(port)
       pass
@@ -845,14 +865,15 @@ def dump_help(prg):
   out("       -e <bytes>      Ethernet receive size (defaults to 8 bytes)")
   out("       -p <seconds>    Ethernet client poll interval (defaults to 1 second)")
   out("       -s <bytes>      Serial receive size (defaults to 1 byte)")
-  out("       -b <port>       Starts broadcast service on given port")
-  out("       -B <port>       Queries network for uartsockets")
+  out("       -b              Starts broadcast service, will answer to network queries")
+  out("       -B              Queries network for uartsockets")
 
 if __name__ == "__main__":
   """ main entry """
+  out("pyartsocket " + VERSION)
   HOST, PORT = "localhost", 5001
-  broadcast_query_listener_port = None
-  query_server_port = None
+  broadcast_query_listener = False
+  query_server = False
   host_port_arg = None
   port_arg = None
   skip = False
@@ -871,11 +892,9 @@ if __name__ == "__main__":
         g_eth_poll = int(sys.argv[ix+1])
         skip = True
       elif arg == "-b":
-        broadcast_query_listener_port = int(sys.argv[ix+1])
-        skip = True
+        broadcast_query_listener = True
       elif arg == "-B":
-        query_server_port = int(sys.argv[ix+1])
-        skip = True
+        query_server = True
     elif host_port_arg == None:
       host_port_arg = arg
     elif port_arg == None:
@@ -901,15 +920,19 @@ if __name__ == "__main__":
       socket.inet_aton(host_port_arg)
       HOST = host_port_arg
 
-  if query_server_port:
-    rx = threading.Thread(target=udp_reply_listen, args = [HOST, query_server_port, 5])
+  if query_server:
+    if HOST == "localhost":
+      out("warning: specify ip address if you want the uartsocket to be visible on the network")
+    rx = threading.Thread(target=udp_reply_listen, args = [HOST, PORT, 5, out_nonl])
     rx.daemon = True
     rx.start()
-    broadcast_query(query_server_port)
+    broadcast_query(PORT)
     rx.join()
-  else:    
-    if broadcast_query_listener_port:
-      rx = threading.Thread(target=broadcast_query_listen, args = [HOST, broadcast_query_listener_port])
+  else:
+    if broadcast_query_listener:
+      if HOST == "localhost":
+        out("warning: specify ip address if you want the uartsocket to be visible on the network")
+      rx = threading.Thread(target=broadcast_query_listen, args = [HOST, PORT])
       rx.daemon = True
       rx.start()
       
