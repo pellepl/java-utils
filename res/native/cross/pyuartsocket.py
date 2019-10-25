@@ -388,13 +388,17 @@ class Client(threading.Thread):
       strdata = str(data, 'ascii')
       self.cmd = self.cmd + strdata
       if strdata.endswith("\n"):
-        try:
-          self.on_command(self.cmd)
-        except serial.serialutil.SerialException as e:
-          self.error("serial:{}".format(str(e)))
-        except:
-          self.error("unknown:{}".format(sys.exc_info()[0]))
-          traceback.print_exc()
+        cmds = self.cmd.split("\n")
+        for c in cmds:
+          if len(c.strip()) == 0:
+            continue
+          try:
+            self.on_command(c)
+          except serial.serialutil.SerialException as e:
+            self.error("serial:{}".format(str(e)))
+          except:
+            self.error("unknown:{}".format(sys.exc_info()[0]))
+            traceback.print_exc()
         self.cmd = ""
 
     elif self.type == CLIENT_DATA_RXTX:
