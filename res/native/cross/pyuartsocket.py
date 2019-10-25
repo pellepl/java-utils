@@ -2,15 +2,18 @@
 
 # v1.1dev
 
+# Firewall: given port   needs UDP/TCP
+#           given port+1 needs UDP
+
 # No select, only threads, to be window$ compatible
-#
+
 # Ideas
 #   * [done] rx or tx sniffing
 #   * [done] exclusive rxtx, only one can tx to uart
 #   * [done] uartsocket discovery over network
 #   * send uart data as multicast instead of tcp
 #   * connect uartsocket servers, sharing uarts
-#
+
 # Client:Ctrl <1---1> Serial
 #      ^
 #      |1
@@ -298,7 +301,7 @@ class Client(threading.Thread):
     self.cmd = ""
     self.q_ser2eth = queue.Queue()
     self.data_clients_r = []  # these are the CLIENT_DATA_RX and CLIENT_DATA_RXTX types
-    self.data_clients_t = []  # these are the CLIENT_DATA_TX ypes
+    self.data_clients_t = []  # these are the CLIENT_DATA_TX types
     self.ctrl_client = None
     self.uart = None
     self.ser_rtimeout = 1.0
@@ -377,7 +380,8 @@ class Client(threading.Thread):
     if len(data) == 0:
       self.zeroes = self.zeroes + 1
       if self.zeroes > 100000:
-        sys.exit(1)
+        out("WARNING: wild loop, eth rx")
+        sys.exit(1) # consider this a wild loop, kill it off
       return
     self.zeroes = 0
     if self.type == CLIENT_CTRL:
@@ -868,6 +872,18 @@ def dump_help(prg):
   out("       -b              Starts broadcast service, will answer to network queries")
   out("       -B              Queries network for uartsockets")
 
+def get_ip():
+  s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+  try:
+    # doesn't even have to be reachable
+    s.connect(('10.255.255.255', 1))
+    ip = s.getsockname()[0]
+  except:
+    ip = '127.0.0.1'
+  finally:
+    s.close()
+  return ip
+
 if __name__ == "__main__":
   """ main entry """
   out("pyartsocket " + VERSION)
@@ -900,7 +916,7 @@ if __name__ == "__main__":
     elif port_arg == None:
       port_arg = arg
     else:
-      out("Host and port already set, ambiguous argument {:s}".format(arg))
+      out("ERROR: Host and port already set, ambiguous argument {:s}".format(arg))
       dump_help(sys.argv[0])
       sys.exit(1)
   if port_arg:
@@ -922,7 +938,11 @@ if __name__ == "__main__":
 
   if query_server:
     if HOST == "localhost":
-      out("warning: specify ip address if you want the uartsocket to be visible on the network")
+      ip = get_ip()
+      if ip == "127.0.0.1":
+        out("WARNING: no ip address specified and no network")
+      else:
+        out("WARNING: specify ip address to select which network to query (e.g. " + ip + ")")
     rx = threading.Thread(target=udp_reply_listen, args = [HOST, PORT, 5, out_nonl])
     rx.daemon = True
     rx.start()
@@ -931,7 +951,11 @@ if __name__ == "__main__":
   else:
     if broadcast_query_listener:
       if HOST == "localhost":
-        out("warning: specify ip address if you want the uartsocket to be visible on the network")
+        ip = get_ip()
+        if ip == "127.0.0.1":
+          out("WARNING: no ip address specified and no network")
+        else:
+          out("WARNING: specify ip address if you want the uartsocket to be visible on the network (e.g. " + ip + ")")
       rx = threading.Thread(target=broadcast_query_listen, args = [HOST, PORT])
       rx.daemon = True
       rx.start()
@@ -948,3 +972,4 @@ if __name__ == "__main__":
     g_running = False
     server.shutdown()
     dbg("stopped server @ {:s}:{:d}".format(HOST, PORT))
+
