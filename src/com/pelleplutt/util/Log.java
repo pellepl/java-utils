@@ -21,7 +21,7 @@ public class Log {
   public static final List<String> includeStrings = new ArrayList<String>();
   public static final List<String> excludeStrings = new ArrayList<String>();
   public static final String DIRECT_SETTING_DIRECTORY_PROPERTY_NAME = "pelle.log.conf.dir";
-  
+
   public static final String FILE_ENTRY_EXCLUDE_STRINGS = "[[-strings";
   public static final String FILE_ENTRY_INCLUDE_STRINGS = "[[onlystrings";
   public static final String FILE_ENTRY_EXCLUDE_CLASSES = "[[-classes";
@@ -31,7 +31,7 @@ public class Log {
   public static final String FILE_ENTRY_STRIP_PACKAGES_AUTO = "[[packagesauto";
   public static final String FILE_ENTRY_LOG_DISABLE = "[[-log";
   public static final String FILE_ENTRY_LOG_ENABLE = "[[log";
-  
+
   static final int STATE_EXCLUDE_STRINGS = 0;
   static final int STATE_INCLUDE_STRINGS = 1;
   static final int STATE_EXCLUDE_CLASSES = 2;
@@ -56,6 +56,24 @@ public class Log {
 	  if (Essential.LOG_C && log && out != System.out && out != System.err) {
 		  t.printStackTrace(out);
 	  }
+  }
+
+  public static void printf(String f, Object ...args) {
+    if (Essential.LOG_C && log) {
+      String s = String.format(f, args);
+      StringBuffer sb = new StringBuffer(s);
+      boolean filtered = false;
+      filtered = checkWildcardFilters(s);
+      if (ln) {
+        if (!filtered) {
+          sb = doClassAndMethod(sb);
+        }
+      }
+      if (!filtered && sb != null) {
+        out.println(sb.toString());
+      }
+      ln = true;
+    }
   }
   
   public static void print(String s) {
