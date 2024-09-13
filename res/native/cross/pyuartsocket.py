@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 
-# v1.1dev
+# v1.2dev
 
 # Firewall: given port   needs UDP/TCP
 #           given port+1 needs UDP
 
 # No select, only threads, to be window$ compatible
+
+# automatically publish specific uart over internet 
+# can be done using execution switches
+# -x "U <uart config>" -x "O /dev/tty<UART>" - a "A 0"
+# which will start a zombie client connecting to the 
+# uart and force all following clients over network
+# to automatically connect to client 0 = zombie client
 
 # Ideas
 #   * [done] rx or tx sniffing
@@ -32,7 +39,7 @@ import queue
 import traceback
 import serial.tools.list_ports
 
-VERSION = "1.1 dev"
+VERSION = "1.2 dev"
 
 g_ctrl_clients = []
 g_data_clients = []
@@ -43,6 +50,8 @@ g_running = True
 g_eth_recv_size = 8
 g_eth_poll = 1
 g_ser_recv_size = 1
+g_zombie_cmds = []
+g_auto_cmds = []
 
 # Control channel
 CLIENT_CTRL = 0
@@ -180,6 +189,8 @@ def serial_rx(uart):
       uart.ctrl_client.running = False
       uart.close()
       break
+    except TypeError:
+      break
 
     if len(ser_data) == 0:
       continue
@@ -203,6 +214,18 @@ def serial_tx(uart):
       uart.ctrl_client.running = False
       uart.close()
       break
+    
+class ZombieSocket:
+  """ Fake socket for zombies """
+  def sendall(self, bytes):
+    print(str(bytes, "ascii"))
+    
+  def getpeername(self):
+    return ("zombie",-1)
+    
+  def close(self):
+    pass
+
 
 class Uart:
   """ class: uart """
@@ -296,7 +319,11 @@ class Client(threading.Thread):
     self.id = g_id
     g_id = g_id + 1
     self.running = True
-    self.socket = request_handler.request
+    if request_handler == None:
+      self.socket = ZombieSocket()
+      self.running = False
+    else:
+      self.socket = request_handler.request
     self.type = CLIENT_CTRL
     self.cmd = ""
     self.q_ser2eth = queue.Queue()
@@ -328,6 +355,12 @@ class Client(threading.Thread):
         self.socket.sendall(ser_data)
       except queue.Empty:
         pass
+      
+  def client_kill(self):
+    if not self.running:
+      finalize_client(self)
+    else:
+      self.running = False
 
   def echo(self, text):
     """ echo message to peer """
@@ -472,7 +505,7 @@ class Client(threading.Thread):
       if closee == None:
         self.error("no such channel")
       else:
-        closee.running = False
+        closee.client_kill()
         self.ok()
 
     elif cmd == CMD_IDENTIFY:
@@ -785,7 +818,8 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
     client = Client(self)
     g_ctrl_clients.append(client)
     try:
-      cmd = ""
+      for cmd in g_auto_cmds:
+        client.on_command(cmd)
       self.request.settimeout(g_eth_poll)
       while g_running and client.running:
         try:
@@ -875,6 +909,8 @@ def dump_help(prg):
   out("       -s <bytes>      Serial receive size (defaults to 1 byte)")
   out("       -b              Starts broadcast service, will answer to network queries")
   out("       -B              Queries network for uartsockets")
+  out("       -x <cmd>        Starts a zombie client and executes given command (may be given multiple times)")
+  out("       -a <cmd>        Automatically executes given commands on connecting clients, unless zombie (may be given multiple times)")
 
 def get_ip():
   s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -915,6 +951,12 @@ if __name__ == "__main__":
         broadcast_query_listener = True
       elif arg == "-B":
         query_server = True
+      elif arg == "-x":
+        g_zombie_cmds.append(sys.argv[ix+1])
+        skip = True
+      elif arg == "-a":
+        g_auto_cmds.append(sys.argv[ix+1])
+        skip = True
     elif host_port_arg == None:
       host_port_arg = arg
     elif port_arg == None:
@@ -972,8 +1014,12 @@ if __name__ == "__main__":
       server_thread = threading.Thread(target=server.serve_forever)
       server_thread.daemon = True
       server_thread.start()
+      if len(g_zombie_cmds) > 0:
+        zombie = Client(None)
+        g_ctrl_clients.append(zombie)
+        for cmd in g_zombie_cmds:
+          zombie.on_command(cmd)
       server_thread.join()
     g_running = False
     server.shutdown()
     dbg("stopped server @ {:s}:{:d}".format(HOST, PORT))
-
